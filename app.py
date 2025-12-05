@@ -5,7 +5,7 @@ from datetime import datetime
 import plotly.graph_objects as go
 import textwrap
 import json
-
+st.set_page_config(layout="wide", initial_sidebar_state="expanded")
 
 # ========== БАЗА ДАННЫХ ==========
 def get_db_connection():
@@ -2317,4 +2317,5 @@ def main():
 
 
 if __name__ == "__main__":
+
     main()
