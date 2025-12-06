@@ -81,7 +81,11 @@ def create_auth_sidebar():
                 if st.button("🏠 Главная", use_container_width=True):
                     st.session_state.page = 'dashboard'
                     st.rerun()
-
+# === ДОБАВЛЯЕМ ВОТ ЭТУ КНОПКУ ===
+                if st.button("👨‍🎓 База студентов", use_container_width=True):
+                    st.session_state.page = 'students'
+                    st.rerun()
+                # ================================
                 # Твои требования:
                 if st.button("📨 Отклики на вакансии", use_container_width=True):
                     st.session_state.page = 'applications'
@@ -102,4 +106,5 @@ def create_auth_sidebar():
 
         else:
             # Если вдруг меню загрузилось без входа (на всякий случай)
+
             st.error("Требуется авторизация")
