@@ -2362,11 +2362,7 @@ def main():
             st.session_state.page = 'dashboard'
             st.rerun()
 
-        # Убрали 'students' из списка запрещенных
-        if user_role == 'employer' and current_page in ['student_form', 'vacancy_form', 'analytics']:
-            st.warning("⛔ Нет доступа")
-            st.session_state.page = 'dashboard'
-            st.rerun()
+        
 
         handler = page_handlers.get(st.session_state.page, dashboard_page)
         handler()
@@ -2374,6 +2370,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
