@@ -1610,6 +1610,7 @@ def student_form_page():
 
     if is_edit and st.session_state.current_student_id:
         try:
+            # Получаем данные студента (это Pandas Series)
             student_data = st.session_state.db_manager.get_student_by_id(st.session_state.current_student_id)
         except Exception as e:
             st.error(f"Ошибка при загрузке данных студента: {e}")
@@ -1618,64 +1619,93 @@ def student_form_page():
     with st.form(key="student_form"):
         col1, col2 = st.columns(2)
 
+        # ВЕЗДЕ НИЖЕ ВМЕСТО "if student_data" ПИШЕМ "if student_data is not None"
+        
         with col1:
             full_name = st.text_input("Полное ФИО *",
-                                      value=student_data['full_name'] if student_data else "",
+                                      value=student_data['full_name'] if student_data is not None else "",
                                       placeholder="Иванов Иван Иванович")
             email = st.text_input("Email *",
-                                  value=student_data['email'] if student_data else "",
+                                  value=student_data['email'] if student_data is not None else "",
                                   placeholder="example@email.com")
             contact_number = st.text_input("Контактный номер *",
-                                           value=student_data['contact_number'] if student_data else "",
+                                           value=student_data['contact_number'] if student_data is not None else "",
                                            help="Формат: +7 XXX XXX XX XX",
                                            placeholder="+7 701 123 4567")
             document_id = st.text_input("ИИН *",
-                                        value=student_data['document_id'] if student_data else "",
+                                        value=student_data['document_id'] if student_data is not None else "",
                                         placeholder="12 цифр")
 
         with col2:
-            course = st.selectbox("Курс *", COURSE_OPTIONS,
-                                  index=COURSE_OPTIONS.index(student_data['course']) if student_data and student_data[
-                                      'course'] in COURSE_OPTIONS else 2)
-            specialization = st.selectbox("Специальность *", SPECIALIZATION_OPTIONS,
-                                          index=SPECIALIZATION_OPTIONS.index(
-                                              student_data['specialization']) if student_data and student_data[
-                                              'specialization'] in SPECIALIZATION_OPTIONS else 0)
-            university = st.selectbox("Университет", UNIVERSITY_OPTIONS,
-                                      index=0 if not student_data else UNIVERSITY_OPTIONS.index(
-                                          student_data['university']) if student_data and student_data[
-                                          'university'] in UNIVERSITY_OPTIONS else 0)
+            # Для селектов (выпадающих списков) нужна аккуратная проверка
+            default_course_idx = COURSE_OPTIONS.index(2) # по умолчанию 2 курс
+            if student_data is not None and student_data['course'] in COURSE_OPTIONS:
+                default_course_idx = COURSE_OPTIONS.index(student_data['course'])
+
+            course = st.selectbox("Курс *", COURSE_OPTIONS, index=default_course_idx)
+
+            default_spec_idx = 0
+            if student_data is not None and student_data['specialization'] in SPECIALIZATION_OPTIONS:
+                default_spec_idx = SPECIALIZATION_OPTIONS.index(student_data['specialization'])
+            
+            specialization = st.selectbox("Специальность *", SPECIALIZATION_OPTIONS, index=default_spec_idx)
+            
+            # Университет
+            default_uni_idx = 0
+            if student_data is not None and student_data['university'] in UNIVERSITY_OPTIONS:
+                default_uni_idx = UNIVERSITY_OPTIONS.index(student_data['university'])
+                
+            university = st.selectbox("Университет", UNIVERSITY_OPTIONS, index=default_uni_idx)
+            
+            # GPA
+            default_gpa = 3.0
+            if student_data is not None and pd.notna(student_data['gpa']):
+                default_gpa = float(student_data['gpa'])
+                
             gpa = st.number_input("Средний балл (GPA)",
                                   min_value=0.0, max_value=4.0, step=0.1,
-                                  value=float(student_data['gpa']) if student_data and pd.notna(
-                                      student_data['gpa']) else 3.0)
+                                  value=default_gpa)
+
+        # Мультиселект (языки)
+        default_langs = []
+        if student_data is not None and pd.notna(student_data['programming_languages']):
+            # Разбиваем строку и чистим пробелы
+            raw_langs = str(student_data['programming_languages']).split(',')
+            # Фильтруем только те, что есть в списке опций
+            default_langs = [l.strip() for l in raw_langs if l.strip() in LANGUAGE_OPTIONS]
 
         programming_languages = st.multiselect("Языки программирования и технологии",
                                                LANGUAGE_OPTIONS,
-                                               default=student_data['programming_languages'].split(
-                                                   ', ') if student_data and pd.notna(
-                                                   student_data['programming_languages']) else [])
+                                               default=default_langs)
 
         work_experience = st.text_area("Опыт работы",
-                                       value=student_data['work_experience'] if student_data else "",
+                                       value=student_data['work_experience'] if student_data is not None else "",
                                        height=150,
                                        placeholder="Опишите ваш опыт работы, проекты, достижения...")
 
         portfolio_link = st.text_input("Ссылка на портфолио/GitHub",
-                                       value=student_data['portfolio_link'] if student_data else "",
+                                       value=student_data['portfolio_link'] if student_data is not None else "",
                                        placeholder="https://github.com/username")
 
         col_year, col_active = st.columns(2)
         with col_year:
+            default_year = 2024
+            if student_data is not None and pd.notna(student_data['graduation_year']):
+                default_year = int(student_data['graduation_year'])
+                
             graduation_year = st.number_input("Год выпуска",
                                               min_value=2020, max_value=2030,
-                                              value=int(student_data['graduation_year']) if student_data and pd.notna(
-                                                  student_data['graduation_year']) else 2024)
+                                              value=default_year)
         with col_active:
-            is_active = st.checkbox("Активно ищу работу/стажировку",
-                                    value=bool(student_data['is_active']) if student_data else True)
+            # Чекбокс
+            is_active_val = True
+            if student_data is not None:
+                is_active_val = bool(student_data['is_active'])
+            
+            is_active = st.checkbox("Активно ищу работу/стажировку", value=is_active_val)
 
         submit_label = "💾 Сохранить изменения" if is_edit else "🚀 Отправить заявку"
+        # Вот она - кнопка Submit. Она должна быть внутри with st.form!
         submitted = st.form_submit_button(submit_label, use_container_width=True)
 
         if submitted:
@@ -1696,22 +1726,22 @@ def student_form_page():
                         st.session_state.db_manager.add_notification(
                             st.session_state.current_student_id,
                             "Профиль обновлен",
-                            f"Ваш профиль был успешно обновлен. Информация актуальна на {datetime.now().strftime('%d.%m.%Y')}",
+                            f"Ваш профиль был обновлен. Дата: {datetime.now().strftime('%d.%m.%Y')}",
                             "success"
                         )
                     else:
                         st.session_state.db_manager.insert_student(student_data_tuple)
                         st.success("✅ Заявка успешно отправлена!")
-                        # Добавляем уведомление
+                        # Добавляем уведомление админу
                         st.session_state.db_manager.add_notification(
                             1,  # Администратор
                             "Новая заявка студента",
-                            f"Студент {full_name} подал заявку на участие в системе",
+                            f"Студент {full_name} подал заявку",
                             "info"
                         )
                         st.balloons()
 
-                    # Сброс состояния
+                    # Сброс состояния после успеха
                     if is_edit:
                         st.session_state.edit_mode = False
                         st.session_state.current_student_id = None
@@ -1720,11 +1750,11 @@ def student_form_page():
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"❌ Ошибка: {str(e)}")
+                    st.error(f"❌ Ошибка сохранения: {str(e)}")
             else:
                 st.warning("⚠️ Пожалуйста, заполните все обязательные поля (отмечены *)")
 
-    # Кнопка возврата
+    # Кнопки возврата (вне формы)
     col1, col2 = st.columns(2)
     with col1:
         if st.button("⬅️ К списку студентов", use_container_width=True, type="secondary"):
@@ -2344,6 +2374,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
