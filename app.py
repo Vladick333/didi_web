@@ -5,7 +5,8 @@ from datetime import datetime
 import plotly.graph_objects as go
 import textwrap
 import json
-
+from auth import init_auth_database, login_page
+from sidebar_auth import create_auth_sidebar
 # ========== БАЗА ДАННЫХ ==========
 def get_db_connection():
     """Создает новое соединение с базой данных для каждого запроса"""
@@ -342,7 +343,6 @@ UNIVERSITY_OPTIONS = [
 ]
 
 
-# ========== ИНИЦИАЛИЗАЦИЯ ==========
 def init_session_state():
     """Инициализация состояния сессии"""
     defaults = {
@@ -357,8 +357,14 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Инициализируем базу данных при первом запуске
+    # Инициализируем основную базу
     init_database()
+
+    # --- ИСПРАВЛЕНИЕ ---
+    # Делаем импорт прямо тут, чтобы Python точно увидел функцию
+    from auth import init_auth_database
+    init_auth_database()
+    # -------------------
 
 
 # ========== НОВЫЙ СТИЛЬ - ФИОЛЕТОВЫЙ КИБЕРПАНК ==========
@@ -2290,32 +2296,53 @@ def create_sidebar():
         """, unsafe_allow_html=True)
 
 
-# ========== ГЛАВНАЯ ФУНКЦИЯ ==========
 def main():
     init_session_state()
     apply_custom_styles()
-    create_sidebar()
 
-    # Маршрутизация страниц
-    page_handlers = {
-        'dashboard': dashboard_page,
-        'students': student_management_page,
-        'student_form': student_form_page,
-        'vacancies': vacancies_page,
-        'vacancy_form': vacancy_form_page,
-        'apply_vacancy': apply_vacancy_page,
-        'applications': applications_page,
-        'employment_reports': employment_reports_page,
-        'notifications': notifications_page,
-        'analytics': analytics_page,
-    }
+    # Проверка входа
+    if 'user' not in st.session_state:
+        login_page()
+    else:
+        # ВАЖНО: Вызываем функцию из файла sidebar_auth.py
+        create_auth_sidebar()  # <--- ЗДЕСЬ БЫЛА ОШИБКА, ВЫЗЫВАЛАСЬ СТАРАЯ
 
-    # Вызов обработчика текущей страницы
-    handler = page_handlers.get(st.session_state.page, dashboard_page)
-    handler()
+        # Маршрутизация (ваш старый код)
+        page_handlers = {
+            'dashboard': dashboard_page,
+            'students': student_management_page,
+            'student_form': student_form_page,
+            'vacancies': vacancies_page,
+            'vacancy_form': vacancy_form_page,
+            'apply_vacancy': apply_vacancy_page,
+            'applications': applications_page,
+            'employment_reports': employment_reports_page,
+            'notifications': notifications_page,
+            'analytics': analytics_page,
+        }
+
+        # Защита от прямого перехода по URL (если студент попытается открыть админку)
+        user_role = st.session_state.user['role']
+        current_page = st.session_state.page
+
+        # Если СТУДЕНТ пытается зайти куда не надо
+        if user_role == 'student' and current_page in ['students', 'applications', 'employment_reports', 'analytics',
+                                                       'vacancy_form']:
+            st.warning("⛔ Нет доступа")
+            st.session_state.page = 'dashboard'
+            st.rerun()
+
+        # Если РАБОТОДАТЕЛЬ пытается зайти куда не надо
+        if user_role == 'employer' and current_page in ['students', 'student_form', 'vacancy_form', 'analytics']:
+            st.warning("⛔ Нет доступа")
+            st.session_state.page = 'dashboard'
+            st.rerun()
+
+        handler = page_handlers.get(st.session_state.page, dashboard_page)
+        handler()
 
 
 if __name__ == "__main__":
-
     main()
+
 
