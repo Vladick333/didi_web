@@ -2332,9 +2332,8 @@ def main():
             st.session_state.page = 'dashboard'
             st.rerun()
 
-        # Если РАБОТОДАТЕЛЬ пытается зайти куда не надо
-        # 👇 Я УБРАЛ ОТСЮДА 'vacancy_form', ТЕПЕРЬ ОНО РАБОТАЕТ 👇
-        if user_role == 'employer' and current_page in ['students', 'student_form', 'analytics']:
+        # Убрали 'students' из списка запрещенных
+        if user_role == 'employer' and current_page in ['student_form', 'vacancy_form', 'analytics']:
             st.warning("⛔ Нет доступа")
             st.session_state.page = 'dashboard'
             st.rerun()
@@ -2345,4 +2344,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
