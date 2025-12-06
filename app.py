@@ -2305,7 +2305,7 @@ def main():
         login_page()
     else:
         # ВАЖНО: Вызываем функцию из файла sidebar_auth.py
-        create_auth_sidebar()  # <--- ЗДЕСЬ БЫЛА ОШИБКА, ВЫЗЫВАЛАСЬ СТАРАЯ
+        create_auth_sidebar()
 
         # Маршрутизация (ваш старый код)
         page_handlers = {
@@ -2321,11 +2321,11 @@ def main():
             'analytics': analytics_page,
         }
 
-        # Защита от прямого перехода по URL (если студент попытается открыть админку)
+        # Защита от прямого перехода по URL
         user_role = st.session_state.user['role']
         current_page = st.session_state.page
 
-        # Если СТУДЕНТ пытается зайти куда не надо
+        # Если СТУДЕНТ пытается зайти куда не надо (тут всё верно)
         if user_role == 'student' and current_page in ['students', 'applications', 'employment_reports', 'analytics',
                                                        'vacancy_form']:
             st.warning("⛔ Нет доступа")
@@ -2333,7 +2333,8 @@ def main():
             st.rerun()
 
         # Если РАБОТОДАТЕЛЬ пытается зайти куда не надо
-        if user_role == 'employer' and current_page in ['students', 'student_form', 'vacancy_form', 'analytics']:
+        # 👇 Я УБРАЛ ОТСЮДА 'vacancy_form', ТЕПЕРЬ ОНО РАБОТАЕТ 👇
+        if user_role == 'employer' and current_page in ['students', 'student_form', 'analytics']:
             st.warning("⛔ Нет доступа")
             st.session_state.page = 'dashboard'
             st.rerun()
@@ -2344,5 +2345,4 @@ def main():
 
 if __name__ == "__main__":
     main()
-
 
