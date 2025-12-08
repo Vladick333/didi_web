@@ -288,17 +288,6 @@ def apply_peach_theme():
         min-height: 70vh;
     }
 
-    .login-card {
-        background: white;
-        padding: 2.5rem;
-        border-radius: 15px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
-        border: 2px solid var(--peach-primary);
-        width: 100%;
-        max-width: 450px;
-        margin: 0 auto; /* Добавьте эту строку */
-    }
-
     /* Улучшенные статусные бейджи */
     .status-badge {
         padding: 6px 16px;
@@ -471,43 +460,91 @@ def init_database():
 
 # ========== АВТОРИЗАЦИЯ ==========
 def login_page():
-    st.markdown("""
-    <div class="main-header">
-        <h1>🔐 Вход в систему</h1>
-        <p>Карагандинский экономический университет Казпотребсоюза</p>
-    </div>
-    """, unsafe_allow_html=True)
-
+    # Создаем единый контейнер с заголовком внутри
     st.markdown('<div class="login-center">', unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
         with st.container():
             st.markdown('<div class="login-card">', unsafe_allow_html=True)
 
-            st.markdown(
-                "<h3 style='text-align: center; color: var(--peach-dark); margin-bottom: 30px;'>🎓 КЭУ Карьерный Центр</h3>",
-                unsafe_allow_html=True)
+            # ЗАГОЛОВОК ВНУТРИ КАРТОЧКИ
+            st.markdown("""
+            <div style="text-align: center; margin-bottom: 30px;">
+                <h1 style="color: var(--peach-dark); margin: 0 0 10px 0;">🎓 КЭУ Карьерный Центр</h1>
+                <p style="color: var(--text-light); margin: 5px 0;">Карагандинский экономический университет Казпотребсоюза</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            # Создаем вкладки для Входа и Регистрации
+            tab1, tab2 = st.tabs(["🔐 **Вход**", "📝 **Регистрация**"])
+            
+            with tab1:
+                # Форма входа
+                username = st.text_input("**Логин**", key="login_username", 
+                                       placeholder="Введите ваш логин")
+                password = st.text_input("**Пароль**", type="password", key="login_password",
+                                       placeholder="Введите ваш пароль")
 
-            username = st.text_input("**Логин**", key="login_username", placeholder="Введите ваш логин")
-            password = st.text_input("**Пароль**", type="password", key="login_password",
-                                     placeholder="Введите ваш пароль")
+                col_btn1, col_btn2 = st.columns(2)
+                with col_btn1:
+                    if st.button("**Войти**", key="login_button", use_container_width=True, type="primary"):
+                        if authenticate_user(username, password):
+                            st.success("✅ Успешный вход!")
+                            st.rerun()
+                        else:
+                            st.error("❌ Неверный логин или пароль")
 
-            col_btn1, col_btn2 = st.columns(2)
-            with col_btn1:
-                if st.button("**Войти**", key="login_button", use_container_width=True, type="primary"):
-                    if authenticate_user(username, password):
-                        st.success("✅ Успешный вход!")
-                        st.rerun()
+                with col_btn2:
+                    if st.button("**Демо-доступ**", key="demo_button", use_container_width=True):
+                        st.info("""
+                        **Тестовые данные:**
+                        - Администратор: admin / admin123
+                        - Студент: student / student123
+                        """)
+            
+            with tab2:
+                # Форма регистрации
+                st.markdown("#### Создание нового аккаунта")
+                
+                full_name = st.text_input("**ФИО**", key="reg_full_name",
+                                        placeholder="Иванов Иван Иванович")
+                
+                email = st.text_input("**Email**", key="reg_email",
+                                    placeholder="example@keu.edu.kz")
+                
+                username_reg = st.text_input("**Логин**", key="reg_username",
+                                           placeholder="Придумайте логин")
+                
+                col_pass1, col_pass2 = st.columns(2)
+                with col_pass1:
+                    password_reg = st.text_input("**Пароль**", type="password", key="reg_password",
+                                               placeholder="Минимум 6 символов")
+                
+                with col_pass2:
+                    password_confirm = st.text_input("**Подтвердите пароль**", type="password", key="reg_password_confirm",
+                                                   placeholder="Повторите пароль")
+                
+                # Выбор роли
+                role = st.selectbox("**Роль**", ["Студент", "Преподаватель"], key="reg_role")
+                
+                # Кнопка регистрации
+                if st.button("📝 **Зарегистрироваться**", key="register_button", use_container_width=True, type="primary"):
+                    # Валидация
+                    if not all([full_name, email, username_reg, password_reg, password_confirm]):
+                        st.error("❌ Заполните все поля")
+                    elif password_reg != password_confirm:
+                        st.error("❌ Пароли не совпадают")
+                    elif len(password_reg) < 6:
+                        st.error("❌ Пароль должен быть не менее 6 символов")
+                    elif '@' not in email:
+                        st.error("❌ Введите корректный email")
                     else:
-                        st.error("❌ Неверный логин или пароль")
-
-            with col_btn2:
-                if st.button("**Демо-доступ**", key="demo_button", use_container_width=True):
-                    st.info("""
-                    **Тестовые данные:**
-                    - Администратор: admin / admin123
-                    - Студент: student / student123
-                    """)
+                        # Регистрируем пользователя
+                        if register_user(full_name, email, username_reg, password_reg, role):
+                            st.success("✅ Регистрация успешна! Теперь войдите в систему.")
+                            st.balloons()
+                            # Автоматически переключаемся на вкладку входа
+                            st.rerun()
 
             st.markdown('</div>', unsafe_allow_html=True)
 
@@ -520,11 +557,12 @@ def authenticate_user(username, password):
 
     password_hash = hashlib.sha256(password.encode()).hexdigest()
 
+    # Позволяем входить по username ИЛИ email
     cursor.execute('''
         SELECT id, username, role, full_name 
         FROM users 
-        WHERE username = ? AND password_hash = ?
-    ''', (username, password_hash))
+        WHERE (username = ? OR email = ?) AND password_hash = ?
+    ''', (username, username, password_hash))
 
     user = cursor.fetchone()
     conn.close()
@@ -547,6 +585,49 @@ def logout():
     st.session_state.page = 'login'
     st.rerun()
 
+def register_user(full_name, email, username, password, role):
+    """Регистрация нового пользователя"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    
+    try:
+        # Проверяем, существует ли пользователь
+        cursor.execute('SELECT COUNT(*) FROM users WHERE username = ? OR email = ?', 
+                      (username, email))
+        if cursor.fetchone()[0] > 0:
+            st.error("❌ Пользователь с таким логином или email уже существует")
+            return False
+        
+        # Хэшируем пароль
+        password_hash = hashlib.sha256(password.encode()).hexdigest()
+        
+        # Сохраняем роль в нужном формате
+        role_db = 'student' if role == 'Студент' else 'teacher'
+        
+        # Добавляем пользователя
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role, full_name, email)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (username, password_hash, role_db, full_name, email))
+        
+        # Если это студент, добавляем запись в таблицу students
+        if role_db == 'student':
+            user_id = cursor.lastrowid
+            
+            cursor.execute('''
+                INSERT INTO students (user_id, full_name, email, course, specialization, gpa, graduation_year)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (user_id, full_name, email, 1, 'Экономика', 3.0, 2024))
+        
+        conn.commit()
+        st.session_state.show_login_tab = True  # Флаг для переключения на вкладку входа
+        return True
+        
+    except Exception as e:
+        st.error(f"❌ Ошибка при регистрации: {str(e)}")
+        return False
+    finally:
+        conn.close()
 
 # ========== CRUD ОПЕРАЦИИ ==========
 class DatabaseManager:
@@ -2062,4 +2143,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
