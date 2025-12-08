@@ -1490,7 +1490,7 @@ def admin_dashboard():
         st.subheader("🔄 Последние отклики")
 
         applications = db.get_recent_applications(10)
-        
+
         if not applications.empty:
             for i, app in applications.iterrows():
                 # Безопасное получение данных с проверкой на NaN
@@ -1498,7 +1498,7 @@ def admin_dashboard():
                 position = app['position'] if pd.notna(app.get('position')) else "Вакансия удалена"
                 company = app['company_name'] if pd.notna(app.get('company_name')) else "Не указано"
                 status = app['status'] if pd.notna(app.get('status')) else 'pending'
-                app_id = app['app_id'] # Используем новый алиас
+                app_id = app['app_id']  # Используем новый алиас
 
                 status_class = f"status-{status}"
                 status_text = {
@@ -1523,15 +1523,24 @@ def admin_dashboard():
                     {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if pd.notna(app.get("cover_letter")) and app["cover_letter"] else ''}
                 </div>
                 """, unsafe_allow_html=True)
-                
-                # Добавляем кнопки действий прямо здесь для удобства
+
+                # --- ВОТ ИСПРАВЛЕННЫЙ КУСОЧЕК ---
                 if status == 'pending':
-                    c1, c2 = st.columns([1, 4])
-                    with c1:
-                        if st.button("Принять", key=f"quick_acc_{app_id}"):
+                    col_acc, col_rej, col_empty = st.columns([1, 1, 3])
+                    
+                    with col_acc:
+                        if st.button("✅ Принять", key=f"quick_acc_{app_id}"):
                             db.update_application_status(app_id, 'accepted')
+                            st.success("Отклик принят!")
                             st.rerun()
-                
+                    
+                    with col_rej:
+                        if st.button("❌ Отклонить", key=f"quick_rej_{app_id}"):
+                            db.update_application_status(app_id, 'rejected')
+                            st.warning("Отклик отклонен.")
+                            st.rerun()
+                # --------------------------------
+
                 st.markdown("---")
         else:
             st.info("Пока нет откликов")
@@ -1812,6 +1821,7 @@ def admin_applications():
     db = st.session_state.db_manager
 
     try:
+        # Используем обновленный метод с правильными ID
         applications = db.get_all_applications()
 
         if not applications.empty:
@@ -1828,19 +1838,24 @@ def admin_applications():
             if status_filter != "Все":
                 filtered_apps = filtered_apps[filtered_apps['status'] == status_filter]
             if search_app:
+                # Проверка на NaN перед поиском
                 filtered_apps = filtered_apps[
-                    filtered_apps['full_name'].str.contains(search_app, case=False, na=False) |
-                    filtered_apps['position'].str.contains(search_app, case=False, na=False)
-                    ]
+                    filtered_apps['full_name'].astype(str).str.contains(search_app, case=False, na=False) |
+                    filtered_apps['position'].astype(str).str.contains(search_app, case=False, na=False)
+                ]
 
             # Отображение откликов
             for i, app in filtered_apps.iterrows():
-                status_class = f"status-{app['status']}"
+                # Безопасное получение данных
+                status = app['status'] if pd.notna(app.get('status')) else 'pending'
+                app_id = app['app_id'] # ВАЖНО: берем правильный ID из нового запроса
+                
+                status_class = f"status-{status}"
                 status_text = {
                     'pending': '⏳ Ожидает',
                     'accepted': '✅ Принято',
                     'rejected': '❌ Отклонено'
-                }.get(app['status'], app['status'])
+                }.get(status, status)
 
                 st.markdown(f"""
                 <div class="content-card">
@@ -1851,47 +1866,42 @@ def admin_applications():
                             <p style="margin: 0;"><strong>Студент:</strong> {app['full_name']}</p>
                             <p style="margin: 0;"><strong>Email:</strong> {app['student_email']}</p>
                             <p style="margin: 0;"><strong>Телефон:</strong> {app['contact_number']}</p>
-                            <p style="margin: 5px 0;"><strong>Дата:</strong> {app['application_date'][:10]}</p>
-                            <p style="margin: 0;"><strong>Зарплата:</strong> {app['salary_range']}</p>
+                            <p style="margin: 5px 0;"><strong>Дата:</strong> {str(app['application_date'])[:10]}</p>
                         </div>
                         <span class="status-badge {status_class}">{status_text}</span>
                     </div>
-                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if app['cover_letter'] else ''}
+                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if pd.notna(app.get("cover_letter")) and app["cover_letter"] else ''}
                 </div>
                 """, unsafe_allow_html=True)
 
-                # В функции admin_applications найдите цикл for i, app in filtered_apps.iterrows():
-# и замените блок кнопок на этот:
-
                 # Кнопки управления статусом
                 col_status1, col_status2, col_status3 = st.columns(3)
-                app_id = app['app_id']  # Используем правильный ID
                 
                 with col_status1:
-                    if app['status'] != 'accepted':
-                        if st.button("✅ Принять", key=f"accept_{app_id}"):
+                    if status != 'accepted':
+                        if st.button("✅ Принять", key=f"list_accept_{app_id}"):
                             db.update_application_status(app_id, 'accepted')
-                            st.success("Статус изменен на 'Принято'")
+                            st.success("Принято!")
                             st.rerun()
+                            
                 with col_status2:
-                    if app['status'] != 'rejected':
-                        if st.button("❌ Отклонить", key=f"reject_{app_id}"):
+                    if status != 'rejected':
+                        if st.button("❌ Отклонить", key=f"list_reject_{app_id}"):
                             db.update_application_status(app_id, 'rejected')
-                            st.success("Статус изменен на 'Отклонено'")
+                            st.warning("Отклонено.")
                             st.rerun()
+                            
                 with col_status3:
-                    if st.button("📋 Подробнее", key=f"app_details_{app_id}"):
+                    if st.button("📋 Подробнее", key=f"list_details_{app_id}"):
                         with st.expander("Детали отклика"):
                             st.write(f"**ID отклика:** {app_id}")
-                            if app['cover_letter']:
-                                st.write(f"**Сопроводительное письмо:**\n{app['cover_letter']}")
-                            st.write(f"**Дата отправки:** {app['application_date']}")
+                            st.write(f"**Зарплата:** {app['salary_range']}")
                 st.markdown("---")
         else:
             st.info("📭 Пока нет откликов на вакансии")
 
     except Exception as e:
-        st.error(f"Ошибка: {str(e)}")
+        st.error(f"Ошибка в списке откликов: {str(e)}")
 
 
 def admin_analytics():
@@ -2167,6 +2177,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
