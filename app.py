@@ -423,7 +423,7 @@ def init_database():
         cursor.execute('''
             INSERT INTO users (username, password_hash, role, full_name, email)
             VALUES (?, ?, ?, ?, ?)
-        ''', ('student', student_password, 'student', 'Иванов Иван Иванович', 'student@keu.edu.kz'))
+        ''', ('student', student_password, 'student', 'Акойбенов Диас Кайырбекович', 'student@keu.edu.kz'))
 
         cursor.execute('''
             INSERT INTO students (user_id, full_name, course, specialization, programming_languages, 
@@ -507,7 +507,7 @@ def login_page():
                 st.markdown("#### Создание нового аккаунта")
                 
                 full_name = st.text_input("**ФИО**", key="reg_full_name",
-                                        placeholder="Иванов Иван Иванович")
+                                        placeholder="Тен Татьяна Леонидовна")
                 
                 email = st.text_input("**Email**", key="reg_email",
                                     placeholder="example@keu.edu.kz")
@@ -2143,5 +2143,6 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
