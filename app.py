@@ -641,6 +641,8 @@ class DatabaseManager:
             cursor.execute(query, params)
             conn.commit()
             return cursor
+        except Exception as e:
+            st.error(f"Database error: {e}")
         finally:
             conn.close()
 
@@ -659,7 +661,8 @@ class DatabaseManager:
              work_experience, portfolio_link, contact_number, email, gpa, graduation_year)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
-        self.execute_query(query, (user_id, *data))
+        # Важно: user_id конвертируем в int
+        self.execute_query(query, (int(user_id), *data))
         return True
 
     def get_all_students(self):
@@ -667,8 +670,9 @@ class DatabaseManager:
         return self.execute_read_query(query)
 
     def get_student_by_user_id(self, user_id):
+        # Важно: user_id конвертируем в int
         query = "SELECT * FROM students WHERE user_id = ?"
-        result = self.execute_read_query(query, (user_id,))
+        result = self.execute_read_query(query, (int(user_id),))
         if not result.empty:
             return result.iloc[0]
         return None
@@ -681,7 +685,7 @@ class DatabaseManager:
             email = ?, gpa = ?, graduation_year = ?, is_active = ?
             WHERE user_id = ?
         '''
-        self.execute_query(query, (*data, user_id))
+        self.execute_query(query, (*data, int(user_id)))
         return True
 
     # Вакансии
@@ -699,28 +703,32 @@ class DatabaseManager:
         self.execute_query(query, data)
         return True
 
-    # Отклики
+    # Отклики (ИСПРАВЛЕНО)
     def apply_for_vacancy(self, student_id, vacancy_id, cover_letter=""):
         query = '''
             INSERT INTO applications (student_id, vacancy_id, cover_letter)
             VALUES (?, ?, ?)
         '''
-        self.execute_query(query, (student_id, vacancy_id, cover_letter))
+        # !!! КРИТИЧЕСКОЕ ИСПРАВЛЕНИЕ: int() преобразует numpy.int64 в обычный int
+        self.execute_query(query, (int(student_id), int(vacancy_id), cover_letter))
         return True
 
     def get_applications_by_student(self, student_id):
         query = '''
-            SELECT a.*, v.position, v.company_name, v.salary_range
+            SELECT a.id as app_id, a.status, a.application_date, a.cover_letter,
+                   v.position, v.company_name, v.salary_range
             FROM applications a
             JOIN vacancies v ON a.vacancy_id = v.id
             WHERE a.student_id = ?
             ORDER BY a.application_date DESC
         '''
-        return self.execute_read_query(query, (student_id,))
+        return self.execute_read_query(query, (int(student_id),))
 
     def get_all_applications(self):
+        # Явно указываем app_id, чтобы не путать с id студента или вакансии
         query = '''
-            SELECT a.*, s.full_name, s.email as student_email, s.contact_number, 
+            SELECT a.id as app_id, a.status, a.application_date, a.cover_letter,
+                   s.full_name, s.email as student_email, s.contact_number, 
                    v.position, v.company_name, v.salary_range
             FROM applications a
             LEFT JOIN students s ON a.student_id = s.id
@@ -730,12 +738,13 @@ class DatabaseManager:
         return self.execute_read_query(query)
 
     def get_recent_applications(self, limit=10):
+        # Убран строгий WHERE, добавлены алиасы для ID
         query = '''
-            SELECT a.*, s.full_name, v.position, v.company_name
+            SELECT a.id as app_id, a.status, a.application_date, a.cover_letter,
+                   s.full_name, v.position, v.company_name
             FROM applications a
             LEFT JOIN students s ON a.student_id = s.id
             LEFT JOIN vacancies v ON a.vacancy_id = v.id
-            WHERE s.full_name IS NOT NULL AND v.position IS NOT NULL
             ORDER BY a.application_date DESC
             LIMIT ?
         '''
@@ -743,7 +752,7 @@ class DatabaseManager:
 
     def update_application_status(self, application_id, status):
         query = "UPDATE applications SET status = ? WHERE id = ?"
-        self.execute_query(query, (status, application_id))
+        self.execute_query(query, (status, int(application_id)))
         return True
 
     # Статистика
@@ -1477,18 +1486,19 @@ def admin_dashboard():
                 st.session_state.page = 'analytics'
                 st.rerun()
 
-        # Последние отклики - ИСПРАВЛЕНО
-        # Последние отклики - ИСПРАВЛЕНО
+        # Последние отклики (ИСПРАВЛЕННАЯ ЛОГИКА)
         st.subheader("🔄 Последние отклики")
 
         applications = db.get_recent_applications(10)
-        if not applications.empty and not applications.isna().all().all():
+        
+        if not applications.empty:
             for i, app in applications.iterrows():
-                # Проверяем наличие данных
-                student_name = app['full_name'] if pd.notna(app['full_name']) else "Не указано"
-                position = app['position'] if pd.notna(app['position']) else "Не указано"
-                company = app['company_name'] if pd.notna(app['company_name']) else "Не указано"
-                status = app['status'] if pd.notna(app['status']) else 'pending'
+                # Безопасное получение данных с проверкой на NaN
+                student_name = app['full_name'] if pd.notna(app.get('full_name')) else "Студент удален/неизвестен"
+                position = app['position'] if pd.notna(app.get('position')) else "Вакансия удалена"
+                company = app['company_name'] if pd.notna(app.get('company_name')) else "Не указано"
+                status = app['status'] if pd.notna(app.get('status')) else 'pending'
+                app_id = app['app_id'] # Используем новый алиас
 
                 status_class = f"status-{status}"
                 status_text = {
@@ -1497,7 +1507,7 @@ def admin_dashboard():
                     'rejected': '❌ Отклонено'
                 }.get(status, 'pending')
 
-                date_str = str(app['application_date'])[:10] if pd.notna(app['application_date']) else "Не указана"
+                date_str = str(app['application_date'])[:10] if pd.notna(app.get('application_date')) else "Не указана"
 
                 st.markdown(f"""
                 <div class="content-card">
@@ -1510,15 +1520,24 @@ def admin_dashboard():
                         </div>
                         <span class="status-badge {status_class}">{status_text}</span>
                     </div>
-                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if pd.notna(app["cover_letter"]) and app["cover_letter"] else ''}
+                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if pd.notna(app.get("cover_letter")) and app["cover_letter"] else ''}
                 </div>
                 """, unsafe_allow_html=True)
+                
+                # Добавляем кнопки действий прямо здесь для удобства
+                if status == 'pending':
+                    c1, c2 = st.columns([1, 4])
+                    with c1:
+                        if st.button("Принять", key=f"quick_acc_{app_id}"):
+                            db.update_application_status(app_id, 'accepted')
+                            st.rerun()
+                
                 st.markdown("---")
         else:
             st.info("Пока нет откликов")
 
     except Exception as e:
-        st.error(f"Ошибка: {str(e)}")
+        st.error(f"Ошибка отображения дашборда: {str(e)}")
 
 
 def admin_students():
@@ -1841,24 +1860,29 @@ def admin_applications():
                 </div>
                 """, unsafe_allow_html=True)
 
+                # В функции admin_applications найдите цикл for i, app in filtered_apps.iterrows():
+# и замените блок кнопок на этот:
+
                 # Кнопки управления статусом
                 col_status1, col_status2, col_status3 = st.columns(3)
+                app_id = app['app_id']  # Используем правильный ID
+                
                 with col_status1:
                     if app['status'] != 'accepted':
-                        if st.button("✅ Принять", key=f"accept_{app['id']}"):
-                            db.update_application_status(app['id'], 'accepted')
+                        if st.button("✅ Принять", key=f"accept_{app_id}"):
+                            db.update_application_status(app_id, 'accepted')
                             st.success("Статус изменен на 'Принято'")
                             st.rerun()
                 with col_status2:
                     if app['status'] != 'rejected':
-                        if st.button("❌ Отклонить", key=f"reject_{app['id']}"):
-                            db.update_application_status(app['id'], 'rejected')
+                        if st.button("❌ Отклонить", key=f"reject_{app_id}"):
+                            db.update_application_status(app_id, 'rejected')
                             st.success("Статус изменен на 'Отклонено'")
                             st.rerun()
                 with col_status3:
-                    if st.button("📋 Подробнее", key=f"app_details_{app['id']}"):
+                    if st.button("📋 Подробнее", key=f"app_details_{app_id}"):
                         with st.expander("Детали отклика"):
-                            st.write(f"**ID отклика:** {app['id']}")
+                            st.write(f"**ID отклика:** {app_id}")
                             if app['cover_letter']:
                                 st.write(f"**Сопроводительное письмо:**\n{app['cover_letter']}")
                             st.write(f"**Дата отправки:** {app['application_date']}")
@@ -2143,6 +2167,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
 
 
