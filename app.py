@@ -2,26 +2,374 @@ import streamlit as st
 import pandas as pd
 import sqlite3
 from datetime import datetime
+import hashlib
+import plotly.express as px
 import plotly.graph_objects as go
-import textwrap
-import json
-from auth import init_auth_database, login_page
-from sidebar_auth import create_auth_sidebar
+
+@st.cache_resource(ttl=3600)  # Кэш на 1 час
+def get_cached_db_connection():
+    return sqlite3.connect('keu_career.db', check_same_thread=False)
+
+def get_db_connection():
+    return get_cached_db_connection()
+
+# ========== КОНФИГУРАЦИЯ ==========
+st.set_page_config(
+    page_title="КЭУ Карьерный Центр",
+    page_icon="🎓",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+# ========== УЛУЧШЕННАЯ ПЕРСИКОВАЯ ТЕМА ==========
+def apply_peach_theme():
+    st.markdown("""
+    <style>
+    /* УЛУЧШЕННАЯ ПЕРСИКОВО-БЕЖЕВАЯ ТЕМА */
+    :root {
+        --peach-primary: #FFA07A;
+        --peach-light: #FFE4B5;
+        --peach-dark: #D2691E;
+        --peach-gradient: linear-gradient(135deg, #FFA07A 0%, #FF8C69 50%, #FF7F50 100%);
+        --beige-light: #F5F5DC;
+        --beige-medium: #E6D5B8;
+        --beige-dark: #D2B48C;
+        --text-dark: #5D4037;
+        --text-light: #8D6E63;
+        --success: #4CAF50;
+        --warning: #FF9800;
+        --danger: #F44336;
+        --card-bg: rgba(255, 255, 255, 0.95);
+        --shadow-glow: 0 0 15px rgba(255, 160, 122, 0.3);
+    }
+
+    * {
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    }
+
+    /* Главный контейнер */
+    [data-testid="stAppViewContainer"] {
+        background: linear-gradient(135deg, var(--beige-light) 0%, var(--peach-light) 100%) !important;
+        color: var(--text-dark) !important;
+        animation: backgroundShift 20s ease infinite alternate;
+        background-size: 200% 200%;
+    }
+
+    @keyframes backgroundShift {
+        0% { background-position: 0% 50%; }
+        100% { background-position: 100% 50%; }
+    }
+
+    /* Заголовки */
+    h1, h2, h3, h4, h5, h6 {
+        color: var(--peach-dark) !important;
+        font-weight: 600 !important;
+        position: relative;
+    }
+
+    h1::after, h2::after {
+        content: '';
+        position: absolute;
+        bottom: -5px;
+        left: 0;
+        width: 60px;
+        height: 3px;
+        background: var(--peach-gradient);
+        border-radius: 2px;
+    }
+
+    /* Заголовок главный */
+    .main-header {
+        background: linear-gradient(135deg, var(--peach-primary) 0%, var(--peach-dark) 100%);
+        color: white !important;
+        padding: 2rem;
+        margin-bottom: 2rem;
+        border-radius: 15px;
+        text-align: center;
+        box-shadow: 0 4px 20px rgba(210, 105, 30, 0.3);
+        animation: pulse 3s infinite alternate;
+        border: 2px solid rgba(255, 255, 255, 0.1);
+    }
+
+    @keyframes pulse {
+        0% { box-shadow: 0 4px 20px rgba(210, 105, 30, 0.3); }
+        100% { box-shadow: 0 4px 30px rgba(210, 105, 30, 0.5); }
+    }
+
+    .main-header h1 {
+        color: white !important;
+        font-size: 2.8rem;
+        margin: 0;
+        text-shadow: 1px 1px 3px rgba(0, 0, 0, 0.2);
+        animation: glow 2s infinite alternate;
+    }
+
+    @keyframes glow {
+        from { text-shadow: 0 0 10px rgba(255, 255, 255, 0.5); }
+        to { text-shadow: 0 0 20px rgba(255, 255, 255, 0.8); }
+    }
+
+    /* Карточки */
+    .content-card {
+        background: var(--card-bg) !important;
+        border: 1px solid var(--beige-dark) !important;
+        border-radius: 12px !important;
+        padding: 1.5rem !important;
+        margin-bottom: 1.5rem !important;
+        box-shadow: var(--shadow-glow) !important;
+        backdrop-filter: blur(5px);
+        transition: transform 0.3s ease, box-shadow 0.3s ease;
+    }
+
+    .content-card:hover {
+        transform: translateY(-5px);
+        box-shadow: 0 8px 25px rgba(255, 160, 122, 0.4) !important;
+    }
+
+    .metric-card {
+        background: linear-gradient(135deg, var(--card-bg) 0%, rgba(255, 255, 255, 0.98) 100%);
+        border: 2px solid var(--peach-primary) !important;
+        border-radius: 12px;
+        padding: 1.5rem;
+        text-align: center;
+        box-shadow: 0 4px 15px rgba(255, 160, 122, 0.3);
+        transition: all 0.3s ease;
+    }
+
+    .metric-card:hover {
+        transform: scale(1.05);
+        box-shadow: 0 6px 20px rgba(255, 160, 122, 0.5);
+    }
+
+    /* Кнопки */
+    .stButton > button {
+        border-radius: 8px !important;
+        padding: 10px 24px !important;
+        font-weight: 600 !important;
+        font-size: 14px !important;
+        transition: all 0.3s ease !important;
+        border: none !important;
+        position: relative;
+        overflow: hidden;
+    }
+
+    .stButton > button::after {
+        content: '';
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        width: 5px;
+        height: 5px;
+        background: rgba(255, 255, 255, 0.5);
+        opacity: 0;
+        border-radius: 100%;
+        transform: scale(1, 1) translate(-50%);
+        transform-origin: 50% 50%;
+    }
+
+    .stButton > button:focus:not(:active)::after {
+        animation: ripple 1s ease-out;
+    }
+
+    @keyframes ripple {
+        0% { transform: scale(0, 0); opacity: 0.5; }
+        100% { transform: scale(20, 20); opacity: 0; }
+    }
+
+    .student-button {
+        background: linear-gradient(135deg, var(--peach-primary) 0%, #FF8C69 100%) !important;
+        color: white !important;
+        box-shadow: 0 3px 10px rgba(255, 160, 122, 0.3) !important;
+    }
+
+    .student-button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 5px 20px rgba(255, 140, 105, 0.5) !important;
+        background: linear-gradient(135deg, #FF8C69 0%, var(--peach-primary) 100%) !important;
+    }
+
+    .admin-button {
+        background: linear-gradient(135deg, #6A5ACD 0%, #483D8B 100%) !important;
+        color: white !important;
+        box-shadow: 0 3px 10px rgba(106, 90, 205, 0.3) !important;
+    }
+
+    .admin-button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 5px 20px rgba(72, 61, 139, 0.5) !important;
+        background: linear-gradient(135deg, #483D8B 0%, #6A5ACD 100%) !important;
+    }
+
+    /* Кнопка назад */
+    .back-button {
+        background: white !important;
+        border: 2px solid var(--peach-primary) !important;
+        color: var(--peach-primary) !important;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1) !important;
+    }
+
+    .back-button:hover {
+        background: linear-gradient(135deg, var(--peach-light) 0%, white 100%) !important;
+        border-color: var(--peach-dark) !important;
+        color: var(--peach-dark) !important;
+        transform: translateX(-5px) !important;
+    }
+
+    /* Сайдбар */
+    section[data-testid="stSidebar"] {
+        background: linear-gradient(180deg, var(--beige-light) 0%, #FAF0E6 100%) !important;
+        border-right: 3px solid var(--peach-primary) !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button {
+        width: 100% !important;
+        margin-bottom: 10px !important;
+        border-radius: 8px !important;
+        padding: 12px !important;
+        text-align: left !important;
+        background: white !important;
+        border: 1px solid var(--beige-dark) !important;
+        color: var(--text-dark) !important;
+        transition: all 0.3s ease !important;
+    }
+
+    [data-testid="stSidebar"] .stButton > button:hover {
+        background: linear-gradient(135deg, var(--peach-primary) 0%, #FF8C69 100%) !important;
+        color: white !important;
+        border-color: var(--peach-primary) !important;
+        transform: translateX(5px) !important;
+        padding-left: 20px !important;
+    }
+
+    /* Таблицы */
+    .dataframe {
+        background: white !important;
+        border: 1px solid var(--beige-dark) !important;
+        border-radius: 10px !important;
+        overflow: hidden !important;
+        box-shadow: 0 3px 10px rgba(0, 0, 0, 0.08);
+    }
+
+    .dataframe th {
+        background: var(--peach-gradient) !important;
+        color: white !important;
+        font-weight: 600 !important;
+        border: none !important;
+        padding: 12px !important;
+    }
+
+    .dataframe td {
+        color: var(--text-dark) !important;
+        border-color: var(--beige-medium) !important;
+        padding: 10px !important;
+    }
+
+    .dataframe tr:hover {
+        background: rgba(255, 160, 122, 0.1) !important;
+    }
+
+    /* Логотип в сайдбаре */
+    .logo-container {
+        text-align: center;
+        padding: 25px 0;
+        border-bottom: 2px solid var(--peach-primary);
+        margin-bottom: 25px;
+        background: white;
+        border-radius: 0 0 15px 15px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    }
+
+    /* Центрирование на странице входа */
+    .login-center {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: 70vh;
+    }
+
+    .login-card {
+        background: white;
+        padding: 2.5rem;
+        border-radius: 15px;
+        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+        border: 2px solid var(--peach-primary);
+        width: 100%;
+        max-width: 450px;
+        margin: 0 auto; /* Добавьте эту строку */
+    }
+
+    /* Улучшенные статусные бейджи */
+    .status-badge {
+        padding: 6px 16px;
+        border-radius: 20px;
+        font-size: 0.85rem;
+        font-weight: 600;
+        display: inline-block;
+        transition: all 0.3s ease;
+    }
+
+    .status-badge:hover {
+        transform: scale(1.05);
+    }
+
+    .status-pending { 
+        background: linear-gradient(135deg, rgba(255, 152, 0, 0.15) 0%, rgba(255, 152, 0, 0.3) 100%); 
+        color: var(--warning); 
+        border: 1px solid var(--warning); 
+    }
+
+    .status-accepted { 
+        background: linear-gradient(135deg, rgba(76, 175, 80, 0.15) 0%, rgba(76, 175, 80, 0.3) 100%); 
+        color: var(--success); 
+        border: 1px solid var(--success); 
+    }
+
+    .status-rejected { 
+        background: linear-gradient(135deg, rgba(244, 67, 54, 0.15) 0%, rgba(244, 67, 54, 0.3) 100%); 
+        color: var(--danger); 
+        border: 1px solid var(--danger); 
+    }
+
+    /* Стили для расширенной таблицы */
+    .full-table-container {
+        background: white;
+        border-radius: 10px;
+        padding: 20px;
+        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        margin-top: 20px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+
 # ========== БАЗА ДАННЫХ ==========
 def get_db_connection():
-    """Создает новое соединение с базой данных для каждого запроса"""
-    return sqlite3.connect('grad_recruitment.db', check_same_thread=False)
+    return sqlite3.connect('keu_career.db', check_same_thread=False)
 
 
 def init_database():
-    """Инициализация базы данных с расширенной структурой"""
     conn = get_db_connection()
     cursor = conn.cursor()
 
-    # Основная таблица студентов
+    # Таблица пользователей
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            username TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            role TEXT NOT NULL,
+            full_name TEXT,
+            email TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    ''')
+
+    # Таблица студентов
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS students (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER UNIQUE,
             full_name TEXT NOT NULL,
             course INTEGER NOT NULL,
             specialization TEXT NOT NULL,
@@ -29,14 +377,13 @@ def init_database():
             work_experience TEXT,
             portfolio_link TEXT,
             contact_number TEXT,
-            document_id TEXT UNIQUE,
             email TEXT,
             gpa REAL,
-            university TEXT DEFAULT 'Международный Университет Информационных Технологий',
+            university TEXT DEFAULT 'Карагандинский экономический университет Казпотребсоюза',
             graduation_year INTEGER,
             is_active INTEGER DEFAULT 1,
             registration_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            last_update TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            FOREIGN KEY (user_id) REFERENCES users (id)
         )
     ''')
 
@@ -58,7 +405,7 @@ def init_database():
         )
     ''')
 
-    # Таблица откликов на вакансии
+    # Таблица откликов
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -72,79 +419,43 @@ def init_database():
         )
     ''')
 
-    # Таблица уведомлений
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            title TEXT NOT NULL,
-            message TEXT NOT NULL,
-            is_read INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            notification_type TEXT DEFAULT 'info'
-        )
-    ''')
-
-    # Таблица отчетов о трудоустройстве
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS employment_reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            student_id INTEGER,
-            company_name TEXT,
-            position TEXT,
-            employment_date DATE,
-            salary TEXT,
-            report_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (student_id) REFERENCES students (id)
-        )
-    ''')
-
-    # Добавляем тестовые данные если таблицы пустые
-    cursor.execute("SELECT COUNT(*) FROM students")
+    # Добавляем тестовых пользователей если таблица пуста
+    cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
-        # Добавляем тестовых студентов
-        test_students = [
-            ('Алиев Аскар Бауыржанович', 4, 'Информационные Системы', 'Python, SQL, Java',
-             'Разработка веб-приложений на Django, участие в хакатонах',
-             'https://github.com/askarali', '+7 701 123 4567', '123456789012',
-             'askar@email.com', 3.8, 'Международный Университет Информационных Технологий', 2024, 1),
-            ('Смирнова Анна Ивановна', 5, 'Компьютерные Науки', 'C++, Python, JavaScript',
-             'Стажировка в ТОО "КазТех", разработка мобильного приложения',
-             'https://github.com/annasm', '+7 777 987 6543', '987654321098',
-             'anna@email.com', 3.9, 'Казахстанско-Британский Технический Университет', 2024, 1),
-            ('Ким Александр Сергеевич', 6, 'Программная Инженерия', 'Java, Spring Boot, SQL',
-             '2 года опыта в fintech компании, разработка backend систем',
-             'https://github.com/alexkim', '+7 705 555 1234', '456789012345',
-             'alex@email.com', 3.5, 'Назарбаев Университет', 2024, 1),
-            ('Омарова Айгуль Даулетовна', 3, 'Data Science', 'Python, R, SQL, TensorFlow',
-             'Исследовательский проект по машинному обучению, публикация в конференции',
-             'https://github.com/aigul', '+7 707 777 8888', '789012345678',
-             'aigul@email.com', 3.7, 'Евразийский Национальный Университет', 2025, 1),
-        ]
+        # Администратор
+        admin_password = hashlib.sha256("admin123".encode()).hexdigest()
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role, full_name, email)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('admin', admin_password, 'admin', 'Администратор Системы', 'admin@keu.edu.kz'))
 
-        cursor.executemany('''
-            INSERT INTO students 
-            (full_name, course, specialization, programming_languages, work_experience, 
-             portfolio_link, contact_number, document_id, email, gpa, university, graduation_year, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', test_students)
+        # Тестовый студент
+        student_password = hashlib.sha256("student123".encode()).hexdigest()
+        cursor.execute('''
+            INSERT INTO users (username, password_hash, role, full_name, email)
+            VALUES (?, ?, ?, ?, ?)
+        ''', ('student', student_password, 'student', 'Иванов Иван Иванович', 'student@keu.edu.kz'))
 
+        cursor.execute('''
+            INSERT INTO students (user_id, full_name, course, specialization, programming_languages, 
+            work_experience, contact_number, email, gpa, graduation_year)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (2, 'Айкобенов Диас Кайырбекович', 4, 'Информационные системы', 'Excel, Word, PowerPoint',
+              'Практика в банке "Каспи"', '+7 701 123 4567', 'student@keu.edu.kz', 3.8, 2024))
+
+    # Добавляем тестовые вакансии
     cursor.execute("SELECT COUNT(*) FROM vacancies")
     if cursor.fetchone()[0] == 0:
-        # Добавляем тестовые вакансии
         test_vacancies = [
-            ('Kaspi Bank', 'Junior Java Developer', 'Программная Инженерия', 4,
-             'от 300 000 KZT', 'Разработка backend систем для банковских приложений',
-             'Java, Spring Boot, SQL, Git', 'hr@kaspi.kz', '2024-12-31'),
-            ('One Technologies', 'Python Developer', 'Информационные Системы', 4,
-             '350 000 - 500 000 KZT', 'Разработка микросервисов на Python',
-             'Python, FastAPI, PostgreSQL, Docker', 'career@one.kz', '2024-12-15'),
-            ('Chocofamily', 'Frontend Developer', 'Компьютерные Науки', 3,
-             'от 280 000 KZT', 'Разработка пользовательских интерфейсов',
-             'JavaScript, React, TypeScript, CSS', 'jobs@chocofamily.kz', '2024-11-30'),
-            ('Beeline Kazakhstan', 'Data Analyst', 'Data Science', 5,
-             '400 000 - 600 000 KZT', 'Анализ данных телеком оператора',
-             'SQL, Python, Power BI, статистика', 'talent@beeline.kz', '2024-12-20'),
+            ('Kaspi Bank', 'Стажер-экономист', 'Экономика', 3,
+             'от 150 000 KZT', 'Анализ финансовых показателей, подготовка отчетов',
+             'Знание Excel, базовые знания экономики, ответственность', 'hr@kaspi.kz', '2024-12-31'),
+            ('Halyk Bank', 'Ассистент финансового аналитика', 'Финансы', 4,
+             '200 000 - 250 000 KZT', 'Помощь в анализе финансовых рынков',
+             'Финансовое образование, аналитическое мышление', 'career@halykbank.kz', '2024-12-15'),
+            ('Kazpost', 'Менеджер по продажам', 'Менеджмент', 3,
+             '180 000 - 220 000 KZT', 'Работа с клиентами, развитие продаж',
+             'Коммуникабельность, стрессоустойчивость', 'jobs@kazpost.kz', '2024-11-30'),
         ]
 
         cursor.executemany('''
@@ -158,13 +469,91 @@ def init_database():
     conn.close()
 
 
+# ========== АВТОРИЗАЦИЯ ==========
+def login_page():
+    st.markdown("""
+    <div class="main-header">
+        <h1>🔐 Вход в систему</h1>
+        <p>Карагандинский экономический университет Казпотребсоюза</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    st.markdown('<div class="login-center">', unsafe_allow_html=True)
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.container():
+            st.markdown('<div class="login-card">', unsafe_allow_html=True)
+
+            st.markdown(
+                "<h3 style='text-align: center; color: var(--peach-dark); margin-bottom: 30px;'>🎓 КЭУ Карьерный Центр</h3>",
+                unsafe_allow_html=True)
+
+            username = st.text_input("**Логин**", key="login_username", placeholder="Введите ваш логин")
+            password = st.text_input("**Пароль**", type="password", key="login_password",
+                                     placeholder="Введите ваш пароль")
+
+            col_btn1, col_btn2 = st.columns(2)
+            with col_btn1:
+                if st.button("**Войти**", key="login_button", use_container_width=True, type="primary"):
+                    if authenticate_user(username, password):
+                        st.success("✅ Успешный вход!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Неверный логин или пароль")
+
+            with col_btn2:
+                if st.button("**Демо-доступ**", key="demo_button", use_container_width=True):
+                    st.info("""
+                    **Тестовые данные:**
+                    - Администратор: admin / admin123
+                    - Студент: student / student123
+                    """)
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)
+
+
+def authenticate_user(username, password):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    password_hash = hashlib.sha256(password.encode()).hexdigest()
+
+    cursor.execute('''
+        SELECT id, username, role, full_name 
+        FROM users 
+        WHERE username = ? AND password_hash = ?
+    ''', (username, password_hash))
+
+    user = cursor.fetchone()
+    conn.close()
+
+    if user:
+        st.session_state.user = {
+            'id': user[0],
+            'username': user[1],
+            'role': user[2],
+            'full_name': user[3]
+        }
+        st.session_state.page = 'dashboard'
+        return True
+    return False
+
+
+def logout():
+    if 'user' in st.session_state:
+        del st.session_state.user
+    st.session_state.page = 'login'
+    st.rerun()
+
+
 # ========== CRUD ОПЕРАЦИИ ==========
 class DatabaseManager:
     def __init__(self):
         pass
 
     def execute_query(self, query, params=()):
-        """Выполняет SQL запрос с созданием нового соединения"""
         conn = get_db_connection()
         try:
             cursor = conn.cursor()
@@ -175,7 +564,6 @@ class DatabaseManager:
             conn.close()
 
     def execute_read_query(self, query, params=()):
-        """Выполняет SQL запрос на чтение"""
         conn = get_db_connection()
         try:
             return pd.read_sql_query(query, conn, params=params)
@@ -183,45 +571,43 @@ class DatabaseManager:
             conn.close()
 
     # Студенты
-    def insert_student(self, data):
+    def insert_student(self, user_id, data):
         query = '''
             INSERT INTO students 
-            (full_name, course, specialization, programming_languages, work_experience, 
-             portfolio_link, contact_number, document_id, email, gpa, graduation_year, is_active)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            (user_id, full_name, course, specialization, programming_languages, 
+             work_experience, portfolio_link, contact_number, email, gpa, graduation_year)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         '''
-        self.execute_query(query, data)
+        self.execute_query(query, (user_id, *data))
         return True
 
     def get_all_students(self):
         query = "SELECT * FROM students ORDER BY registration_date DESC"
         return self.execute_read_query(query)
 
-    def get_student_by_id(self, student_id):
-        query = "SELECT * FROM students WHERE id = ?"
-        result = self.execute_read_query(query, (student_id,))
+    def get_student_by_user_id(self, user_id):
+        query = "SELECT * FROM students WHERE user_id = ?"
+        result = self.execute_read_query(query, (user_id,))
         if not result.empty:
             return result.iloc[0]
         return None
 
-    def update_student(self, student_id, data):
+    def update_student(self, user_id, data):
         query = '''
             UPDATE students SET
             full_name = ?, course = ?, specialization = ?, programming_languages = ?,
-            work_experience = ?, portfolio_link = ?, contact_number = ?, document_id = ?,
-            email = ?, gpa = ?, graduation_year = ?, is_active = ?,
-            last_update = CURRENT_TIMESTAMP
-            WHERE id = ?
+            work_experience = ?, portfolio_link = ?, contact_number = ?,
+            email = ?, gpa = ?, graduation_year = ?, is_active = ?
+            WHERE user_id = ?
         '''
-        self.execute_query(query, (*data, student_id))
-        return True
-
-    def delete_student(self, student_id):
-        query = "DELETE FROM students WHERE id = ?"
-        self.execute_query(query, (student_id,))
+        self.execute_query(query, (*data, user_id))
         return True
 
     # Вакансии
+    def get_all_vacancies(self):
+        query = "SELECT * FROM vacancies WHERE is_active = 1 ORDER BY posted_date DESC"
+        return self.execute_read_query(query)
+
     def insert_vacancy(self, data):
         query = '''
             INSERT INTO vacancies 
@@ -232,11 +618,7 @@ class DatabaseManager:
         self.execute_query(query, data)
         return True
 
-    def get_all_vacancies(self):
-        query = "SELECT * FROM vacancies WHERE is_active = 1 ORDER BY posted_date DESC"
-        return self.execute_read_query(query)
-
-    # Отклики на вакансии
+    # Отклики
     def apply_for_vacancy(self, student_id, vacancy_id, cover_letter=""):
         query = '''
             INSERT INTO applications (student_id, vacancy_id, cover_letter)
@@ -245,9 +627,20 @@ class DatabaseManager:
         self.execute_query(query, (student_id, vacancy_id, cover_letter))
         return True
 
-    def get_applications(self):
+    def get_applications_by_student(self, student_id):
         query = '''
-            SELECT a.*, s.full_name, v.position, v.company_name 
+            SELECT a.*, v.position, v.company_name, v.salary_range
+            FROM applications a
+            JOIN vacancies v ON a.vacancy_id = v.id
+            WHERE a.student_id = ?
+            ORDER BY a.application_date DESC
+        '''
+        return self.execute_read_query(query, (student_id,))
+
+    def get_all_applications(self):
+        query = '''
+            SELECT a.*, s.full_name, s.email as student_email, s.contact_number, 
+                   v.position, v.company_name, v.salary_range
             FROM applications a
             LEFT JOIN students s ON a.student_id = s.id
             LEFT JOIN vacancies v ON a.vacancy_id = v.id
@@ -255,54 +648,22 @@ class DatabaseManager:
         '''
         return self.execute_read_query(query)
 
-    def update_application_status(self, application_id, status):
+    def get_recent_applications(self, limit=10):
         query = '''
-            UPDATE applications SET status = ? WHERE id = ?
+            SELECT a.*, s.full_name, v.position, v.company_name
+            FROM applications a
+            LEFT JOIN students s ON a.student_id = s.id
+            LEFT JOIN vacancies v ON a.vacancy_id = v.id
+            WHERE s.full_name IS NOT NULL AND v.position IS NOT NULL
+            ORDER BY a.application_date DESC
+            LIMIT ?
         '''
+        return self.execute_read_query(query, (limit,))
+
+    def update_application_status(self, application_id, status):
+        query = "UPDATE applications SET status = ? WHERE id = ?"
         self.execute_query(query, (status, application_id))
         return True
-
-    # Уведомления
-    def add_notification(self, user_id, title, message, notification_type='info'):
-        query = '''
-            INSERT INTO notifications (user_id, title, message, notification_type)
-            VALUES (?, ?, ?, ?)
-        '''
-        self.execute_query(query, (user_id, title, message, notification_type))
-        return True
-
-    def get_notifications(self, user_id=None):
-        if user_id:
-            query = "SELECT * FROM notifications WHERE user_id = ? ORDER BY created_at DESC"
-            return self.execute_read_query(query, (user_id,))
-        else:
-            query = "SELECT * FROM notifications ORDER BY created_at DESC LIMIT 50"
-            return self.execute_read_query(query)
-
-    def mark_notification_as_read(self, notification_id):
-        query = '''
-            UPDATE notifications SET is_read = 1 WHERE id = ?
-        '''
-        self.execute_query(query, (notification_id,))
-        return True
-
-    # Отчеты о трудоустройстве
-    def add_employment_report(self, student_id, company_name, position, employment_date, salary):
-        query = '''
-            INSERT INTO employment_reports (student_id, company_name, position, employment_date, salary)
-            VALUES (?, ?, ?, ?, ?)
-        '''
-        self.execute_query(query, (student_id, company_name, position, employment_date, salary))
-        return True
-
-    def get_employment_reports(self):
-        query = '''
-            SELECT er.*, s.full_name, s.specialization 
-            FROM employment_reports er
-            LEFT JOIN students s ON er.student_id = s.id
-            ORDER BY er.employment_date DESC
-        '''
-        return self.execute_read_query(query)
 
     # Статистика
     def get_statistics(self):
@@ -312,43 +673,35 @@ class DatabaseManager:
                 (SELECT COUNT(*) FROM students WHERE is_active = 1) as active_students,
                 (SELECT COUNT(*) FROM vacancies WHERE is_active = 1) as active_vacancies,
                 (SELECT COUNT(*) FROM applications) as total_applications,
-                (SELECT COUNT(*) FROM employment_reports) as employed_students,
-                (SELECT COUNT(*) FROM notifications WHERE is_read = 0) as unread_notifications
+                (SELECT COUNT(*) FROM applications WHERE status = 'accepted') as accepted_applications,
+                (SELECT COUNT(*) FROM applications WHERE status = 'pending') as pending_applications,
+                (SELECT AVG(gpa) FROM students WHERE gpa IS NOT NULL) as avg_gpa
         '''
         result = self.execute_read_query(query)
         if not result.empty:
             return result.iloc[0]
-        return pd.Series([0, 0, 0, 0, 0, 0],
+        return pd.Series([0, 0, 0, 0, 0, 0, 0],
                          index=['total_students', 'active_students', 'active_vacancies',
-                                'total_applications', 'employed_students', 'unread_notifications'])
+                                'total_applications', 'accepted_applications', 'pending_applications', 'avg_gpa'])
 
 
 # ========== ГЛОБАЛЬНЫЕ НАСТРОЙКИ ==========
-COURSE_OPTIONS = [1, 2, 3, 4, 5, 6]
+COURSE_OPTIONS = [1, 2, 3, 4]
 SPECIALIZATION_OPTIONS = [
-    "Информационные Системы", "Компьютерные Науки", "Программная Инженерия",
-    "Кибербезопасность", "Data Science", "Искусственный Интеллект",
-    "Веб-разработка", "Мобильная разработка", "DevOps", "Экономика"
+    "Экономика", "Менеджмент", "Финансы", "Бухгалтерский учет",
+    "Маркетинг", "Логистика", "ITA", "Цифровой дизайн", "Информационные системы"
 ]
-LANGUAGE_OPTIONS = [
-    "Python", "Java", "C++", "JavaScript", "TypeScript", "SQL",
-    "R", "Go", "Swift", "Kotlin", "C#", "PHP", "HTML/CSS", "React", "Vue.js"
-]
-UNIVERSITY_OPTIONS = [
-    "Международный Университет Информационных Технологий",
-    "Казахстанско-Британский Технический Университет",
-    "Назарбаев Университет",
-    "Евразийский Национальный Университет",
-    "Казахский Национальный Университет"
+SKILL_OPTIONS = [
+    "Excel", "Word", "PowerPoint", "1С", "SQL", "Python", "SPSS",
+    "Бухгалтерия", "Финансовый анализ", "Маркетинговые исследования",
+    "S#", "JavaScript", "HTML/CSS", "Data Analysis", "Project Management"
 ]
 
 
 def init_session_state():
-    """Инициализация состояния сессии"""
     defaults = {
-        'page': 'dashboard',
+        'page': 'login',
         'edit_mode': False,
-        'current_student_id': None,
         'current_vacancy_id': None,
         'db_manager': DatabaseManager()
     }
@@ -357,924 +710,662 @@ def init_session_state():
         if key not in st.session_state:
             st.session_state[key] = value
 
-    # Инициализируем основную базу
     init_database()
-
-    # --- ИСПРАВЛЕНИЕ ---
-    # Делаем импорт прямо тут, чтобы Python точно увидел функцию
-    from auth import init_auth_database
-    init_auth_database()
-    # -------------------
-
-
-# ========== НОВЫЙ СТИЛЬ - ФИОЛЕТОВЫЙ КИБЕРПАНК ==========
-def apply_custom_styles():
-    st.set_page_config(
-        page_title="🎓 Graduate Recruitment System",
-        page_icon="🎓",
-        layout="wide",
-        initial_sidebar_state="expanded"
-    )
-
-    st.markdown("""
-    <style>
-    /* ФИОЛЕТОВЫЙ КИБЕРПАНК ТЕМА */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@400;500;700;900&display=swap');
-
-    :root {
-        --neon-purple: #9d4edd;
-        --neon-pink: #ff00ff;
-        --neon-blue: #00e5ff;
-        --dark-bg: #0a0a1a;
-        --card-bg: #14142b;
-        --text-light: #ffffff;
-        --text-dim: #b8b8d1;
-        --accent: #7b2cbf;
-        --success: #00ff88;
-        --warning: #ffaa00;
-        --danger: #ff3860;
-    }
-
-    * {
-        font-family: 'Inter', sans-serif;
-    }
-
-    h1, h2, h3, h4, .stButton > button, .neon-title {
-        font-family: 'Orbitron', sans-serif !important;
-        font-weight: 700;
-    }
-
-    /* Главный контейнер */
-    [data-testid="stAppViewContainer"] {
-        background: linear-gradient(135deg, #0a0a1a 0%, #1a1a2e 50%, #0f0f23 100%);
-        color: var(--text-light);
-        background-attachment: fixed;
-    }
-
-    /* Неоновый заголовок */
-    .main-header {
-        background: rgba(20, 20, 43, 0.8);
-        backdrop-filter: blur(10px);
-        border: 1px solid var(--neon-purple);
-        border-radius: 20px;
-        padding: 2rem;
-        margin-bottom: 2rem;
-        text-align: center;
-        box-shadow: 0 0 30px rgba(157, 78, 221, 0.3),
-                    inset 0 0 20px rgba(157, 78, 221, 0.1);
-        position: relative;
-        overflow: hidden;
-    }
-
-    .main-header::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        height: 2px;
-        background: linear-gradient(90deg, 
-            transparent, 
-            var(--neon-pink), 
-            var(--neon-purple), 
-            var(--neon-blue), 
-            transparent);
-    }
-
-    .main-header h1 {
-        background: linear-gradient(90deg, #9d4edd, #ff00ff, #00e5ff);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        font-size: 3rem;
-        margin: 0;
-        text-shadow: 0 0 20px rgba(157, 78, 221, 0.5);
-        animation: glow 2s ease-in-out infinite alternate;
-    }
-
-    @keyframes glow {
-        from { text-shadow: 0 0 20px rgba(157, 78, 221, 0.5); }
-        to { text-shadow: 0 0 30px rgba(255, 0, 255, 0.7), 0 0 40px rgba(0, 229, 255, 0.4); }
-    }
-
-    /* Карточки метрик */
-    .metric-card {
-        background: rgba(20, 20, 43, 0.8);
-        border: 1px solid rgba(157, 78, 221, 0.3);
-        border-radius: 15px;
-        padding: 1.5rem;
-        text-align: center;
-        backdrop-filter: blur(5px);
-        transition: all 0.3s ease;
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    }
-
-    .metric-card:hover {
-        transform: translateY(-5px);
-        border-color: var(--neon-purple);
-        box-shadow: 0 10px 25px rgba(157, 78, 221, 0.4);
-    }
-
-    .metric-value {
-        font-size: 2.5rem;
-        font-weight: 900;
-        background: linear-gradient(90deg, #9d4edd, #ff00ff);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-clip: text;
-        margin: 0.5rem 0;
-    }
-
-    .metric-label {
-        color: var(--text-dim);
-        font-size: 0.9rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-    }
-
-    /* Кнопки - ОСНОВНЫЕ */
-    .stButton > button {
-        background: linear-gradient(135deg, #9d4edd, #7b2cbf) !important;
-        color: white !important;
-        border: none !important;
-        border-radius: 12px !important;
-        padding: 12px 24px !important;
-        font-weight: 700 !important;
-        font-size: 16px !important;
-        transition: all 0.3s ease !important;
-        box-shadow: 0 5px 15px rgba(157, 78, 221, 0.4) !important;
-        position: relative;
-        overflow: hidden;
-    }
-
-    .stButton > button::before {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: -100%;
-        width: 100%;
-        height: 100%;
-        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.2), transparent);
-        transition: left 0.5s ease;
-    }
-
-    .stButton > button:hover {
-        transform: translateY(-3px) !important;
-        box-shadow: 0 8px 25px rgba(157, 78, 221, 0.6) !important;
-        background: linear-gradient(135deg, #7b2cbf, #9d4edd) !important;
-    }
-
-    .stButton > button:hover::before {
-        left: 100%;
-    }
-
-    .stButton > button:active {
-        transform: scale(0.98) !important;
-    }
-
-    /* Кнопки вторичные */
-    .stButton > button[kind="secondary"] {
-        background: rgba(20, 20, 43, 0.8) !important;
-        border: 2px solid var(--neon-purple) !important;
-        color: var(--neon-purple) !important;
-    }
-
-    .stButton > button[kind="secondary"]:hover {
-        background: var(--neon-purple) !important;
-        color: white !important;
-    }
-
-    /* Поля ввода (ФОРМЫ) - ЯРКИЕ И ВИДИМЫЕ */
-    .stTextInput > div > div > input,
-    .stSelectbox > div > button,
-    .stMultiSelect > div > div > div,
-    .stTextArea > div > textarea,
-    .stNumberInput > div > div > input {
-        background: rgba(255, 255, 255, 0.1) !important;
-        color: white !important;
-        border: 2px solid rgba(157, 78, 221, 0.3) !important;
-        border-radius: 10px !important;
-        padding: 12px 16px !important;
-        font-size: 16px !important;
-        backdrop-filter: blur(5px);
-    }
-
-    .stTextInput > div > div > input:focus,
-    .stSelectbox > div > button:focus,
-    .stMultiSelect > div > div > div:focus,
-    .stTextArea > div > textarea:focus {
-        border-color: var(--neon-purple) !important;
-        box-shadow: 0 0 0 3px rgba(157, 78, 221, 0.2) !important;
-        outline: none !important;
-    }
-
-    /* Цвет текста в селекторах */
-    .stSelectbox > div > button > div > div > div {
-        color: white !important;
-    }
-
-    /* Чекбоксы и радиокнопки */
-    .stCheckbox > label, .stRadio > label {
-        color: var(--text-light) !important;
-        font-weight: 500;
-    }
-
-    /* Карточки контента */
-    .content-card {
-        background: rgba(20, 20, 43, 0.8);
-        border: 1px solid rgba(157, 78, 221, 0.3);
-        border-radius: 15px;
-        padding: 2rem;
-        margin-bottom: 1.5rem;
-        backdrop-filter: blur(5px);
-        box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
-    }
-
-    /* САЙДБАР - ИСПРАВЛЕННЫЙ С ФИКСИРОВАННЫМ РАЗМЕРОМ */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, 
-            rgba(10, 10, 26, 0.98) 0%, 
-            rgba(20, 20, 43, 0.98) 50%,
-            rgba(10, 10, 26, 0.95) 100%) !important;
-        backdrop-filter: blur(20px) !important;
-        border-right: 3px solid var(--neon-purple) !important;
-        box-shadow: 5px 0 25px rgba(157, 78, 221, 0.4) !important;
-        position: fixed !important;
-        height: 100vh !important;
-        overflow-y: auto !important;
-        z-index: 1000 !important;
-        transition: transform 0.3s ease-in-out !important;
-
-        /* СТРОГО фиксированные размеры */
-        min-width: 300px !important;
-        max-width: 300px !important;
-        width: 300px !important;
-    }
-
-    /* Кнопка сворачивания - СТАБИЛЬНАЯ */
-    button[kind="header"] {
-        background: linear-gradient(135deg, #9d4edd, #ff00ff) !important;
-        border: 2px solid #ffffff !important;
-        border-radius: 50% !important;
-        color: white !important;
-        box-shadow: 0 0 20px rgba(157, 78, 221, 0.8), 
-                    0 0 30px rgba(255, 0, 255, 0.5) !important;
-
-        position: fixed !important;
-        top: 50% !important;
-        z-index: 1001 !important;
-
-        width: 45px !important;
-        height: 45px !important;
-        min-width: 45px !important;
-        min-height: 45px !important;
-
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        cursor: pointer !important;
-        transition: all 0.3s ease !important;
-        animation: pulseButton 2s infinite !important;
-    }
-
-    /* Сайдбар ОТКРЫТ - кнопка справа от него */
-    section[data-testid="stSidebar"][aria-expanded="true"] ~ div button[kind="header"],
-    section[data-testid="stSidebar"][aria-expanded="true"] + div button[kind="header"] {
-        left: 285px !important;
-        transform: translateY(-50%) !important;
-    }
-
-    /* Сайдбар ЗАКРЫТ - кнопка слева */
-    section[data-testid="stSidebar"][aria-expanded="false"] ~ div button[kind="header"],
-    section[data-testid="stSidebar"][aria-expanded="false"] + div button[kind="header"] {
-        left: 10px !important;
-        transform: translateY(-50%) !important;
-    }
-
-    /* Анимация кнопки */
-    @keyframes pulseButton {
-        0% { box-shadow: 0 0 20px rgba(157, 78, 221, 0.8), 0 0 30px rgba(255, 0, 255, 0.5); }
-        50% { box-shadow: 0 0 30px rgba(157, 78, 221, 0.9), 0 0 40px rgba(255, 0, 255, 0.7); }
-        100% { box-shadow: 0 0 20px rgba(157, 78, 221, 0.8), 0 0 30px rgba(255, 0, 255, 0.5); }
-    }
-
-    button[kind="header"]:hover {
-        background: linear-gradient(135deg, #ff00ff, #9d4edd) !important;
-        transform: translateY(-50%) scale(1.15) !important;
-        box-shadow: 0 0 40px rgba(157, 78, 221, 1), 
-                    0 0 50px rgba(255, 0, 255, 0.9) !important;
-    }
-
-    /* Иконка в кнопке */
-    button[kind="header"] svg {
-        fill: white !important;
-        stroke: white !important;
-        stroke-width: 2px !important;
-        width: 20px !important;
-        height: 20px !important;
-    }
-
-    /* Кнопки внутри сайдбара */
-    [data-testid="stSidebar"] .stButton > button {
-        width: 100% !important;
-        margin-bottom: 10px !important;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid rgba(157, 78, 221, 0.4) !important;
-        color: #e0e0e0 !important;
-        font-weight: 600 !important;
-        transition: all 0.3s ease !important;
-        border-radius: 12px !important;
-        padding: 12px 16px !important;
-        text-align: left !important;
-    }
-
-    [data-testid="stSidebar"] .stButton > button:hover {
-        background: linear-gradient(90deg, var(--neon-purple), var(--neon-pink)) !important;
-        color: white !important;
-        border-color: white !important;
-        transform: translateX(5px) !important;
-        box-shadow: 0 5px 20px rgba(157, 78, 221, 0.5) !important;
-    }
-
-    [data-testid="stSidebar"] .stButton > button[kind="primary"] {
-        background: linear-gradient(135deg, #9d4edd, #7b2cbf) !important;
-        color: white !important;
-        border: 1px solid white !important;
-        box-shadow: 0 0 15px rgba(157, 78, 221, 0.6) !important;
-    }
-
-    /* Убираем желтые предупреждения Streamlit */
-    .stAlert[kind="warning"],
-    .stAlert[kind="info"],
-    .element-container:has(> .stAlert),
-    div[data-testid="stDecoration"],
-    div[data-testid="stToolbar"],
-    div[data-testid="stStatusWidget"] {
-        display: none !important;
-        visibility: hidden !important;
-        height: 0 !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }
-
-    /* Скрываем стандартные уведомления "Последняя активность" */
-    div[data-testid="stAppViewContainer"] > div:first-child > div:first-child > div:first-child > div:first-child,
-    .st-emotion-cache-1v0mbdj,
-    .st-emotion-cache-16idsys {
-        display: none !important;
-    }
-
-    /* Таблицы */
-    .dataframe {
-        background: rgba(20, 20, 43, 0.8) !important;
-        border: 1px solid rgba(157, 78, 221, 0.3) !important;
-        border-radius: 10px !important;
-        overflow: hidden !important;
-    }
-
-    .dataframe th {
-        background: rgba(157, 78, 221, 0.2) !important;
-        color: var(--neon-purple) !important;
-        font-weight: 700 !important;
-        border: none !important;
-    }
-
-    .dataframe td {
-        color: var(--text-light) !important;
-        border-color: rgba(157, 78, 221, 0.1) !important;
-    }
-
-    /* Информационные блоки */
-    .stAlert {
-        background: rgba(20, 20, 43, 0.9) !important;
-        border: 1px solid !important;
-        border-radius: 10px !important;
-        backdrop-filter: blur(10px);
-    }
-
-    .stAlert[kind="success"] {
-        border-color: var(--success) !important;
-        color: var(--success) !important;
-    }
-
-    .stAlert[kind="error"] {
-        border-color: var(--danger) !important;
-        color: var(--danger) !important;
-    }
-
-    /* Прогресс-бары */
-    .stProgress > div > div {
-        background: linear-gradient(90deg, var(--neon-purple), var(--neon-pink)) !important;
-        box-shadow: 0 0 10px var(--neon-purple);
-    }
-
-    /* Скрываем лишние элементы Streamlit */
-    #MainMenu { 
-        visibility: hidden !important;
-        display: none !important; 
-    }
-    footer { 
-        visibility: hidden !important;
-        display: none !important; 
-    }
-    header { 
-        visibility: hidden !important;
-        display: none !important; 
-    }
-
-    /* Анимации */
-    @keyframes slideIn {
-        from { opacity: 0; transform: translateY(20px); }
-        to { opacity: 1; transform: translateY(0); }
-    }
-
-    .slide-in {
-        animation: slideIn 0.5s ease-out;
-    }
-
-    /* Статусные бейджи */
-    .status-badge {
-        padding: 4px 12px;
-        border-radius: 20px;
-        font-size: 0.8rem;
-        font-weight: 600;
-        display: inline-block;
-    }
-
-    .status-pending { 
-        background: rgba(255, 170, 0, 0.2); 
-        color: var(--warning); 
-        border: 1px solid var(--warning); 
-    }
-    .status-accepted { 
-        background: rgba(0, 255, 136, 0.2); 
-        color: var(--success); 
-        border: 1px solid var(--success); 
-    }
-    .status-rejected { 
-        background: rgba(255, 56, 96, 0.2); 
-        color: var(--danger); 
-        border: 1px solid var(--danger); 
-    }
-    .status-completed { 
-        background: rgba(157, 78, 221, 0.2); 
-        color: var(--neon-purple); 
-        border: 1px solid var(--neon-purple); 
-    }
-
-    /* Заголовки в сайдбаре */
-    [data-testid="stSidebar"] h1,
-    [data-testid="stSidebar"] h2,
-    [data-testid="stSidebar"] h3,
-    [data-testid="stSidebar"] h4 {
-        color: #f0f0f0 !important;
-        text-shadow: 0 2px 4px rgba(0,0,0,0.5);
-    }
-
-    /* Разделители в сайдбаре */
-    [data-testid="stSidebar"] hr {
-        border-color: rgba(157, 78, 221, 0.5) !important;
-        margin: 20px 0 !important;
-    }
-
-    /* Основной контент с отступом под сайдбар */
-    .main-content {
-        margin-left: 300px;
-        transition: margin-left 0.3s ease-in-out;
-    }
-
-    /* Когда сайдбар закрыт */
-    section[data-testid="stSidebar"][aria-expanded="false"] + .main-content,
-    section[data-testid="stSidebar"][aria-expanded="false"] ~ .main-content {
-        margin-left: 0;
-    }
-
-    /* Кастомный скроллбар */
-    ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
-    }
-
-    ::-webkit-scrollbar-track {
-        background: rgba(20, 20, 43, 0.5);
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb {
-        background: linear-gradient(135deg, #9d4edd, #7b2cbf);
-        border-radius: 4px;
-    }
-
-    ::-webkit-scrollbar-thumb:hover {
-        background: linear-gradient(135deg, #7b2cbf, #9d4edd);
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    # JavaScript для улучшения работы
-    js_code = """
-    <script>
-    // Убираем все предупреждения Streamlit
-    document.addEventListener('DOMContentLoaded', function() {
-        function hideStreamlitWarnings() {
-            // Все возможные элементы предупреждений
-            const warningSelectors = [
-                '.stAlert',
-                '.st-emotion-cache-1v0mbdj',
-                '.st-emotion-cache-16idsys',
-                '[data-testid="stDecoration"]',
-                '[data-testid="stToolbar"]',
-                '[data-testid="stStatusWidget"]',
-                'div[class*="warning"]',
-                'div[class*="info"]:not(.content-card)'
-            ];
-
-            warningSelectors.forEach(selector => {
-                document.querySelectorAll(selector).forEach(el => {
-                    if (el.textContent.includes('Последняя активность') || 
-                        el.textContent.includes('Активные вакансии') ||
-                        el.textContent.includes('Новые студенты')) {
-                        el.style.display = 'none';
-                        el.style.visibility = 'hidden';
-                        el.style.height = '0';
-                        el.style.opacity = '0';
-                        el.style.pointerEvents = 'none';
-                    }
-                });
-            });
-        }
-
-        // Сначала скрываем
-        hideStreamlitWarnings();
-
-        // Периодически проверяем (на случай динамической загрузки)
-        setInterval(hideStreamlitWarnings, 1000);
-
-        // Добавляем класс для основного контента
-        const appContainer = document.querySelector('[data-testid="stAppViewContainer"]');
-        if (appContainer) {
-            const mainBlock = appContainer.querySelector('.main');
-            if (mainBlock && mainBlock.querySelector('.block-container')) {
-                const blockContainer = mainBlock.querySelector('.block-container');
-                if (!blockContainer.classList.contains('main-content')) {
-                    blockContainer.classList.add('main-content');
-                }
-            }
-        }
-    });
-    </script>
-    """
-    st.components.v1.html(js_code, height=0)
 
 
 # ========== КОМПОНЕНТЫ ИНТЕРФЕЙСА ==========
 def create_header():
-    """Создает неоновый заголовок"""
     st.markdown("""
-    <div class="main-header slide-in">
-        <h1>🎓 GRADUATE RECRUITMENT SYSTEM</h1>
-        <p style="color: var(--text-dim); margin-top: 10px; font-size: 1.1rem;">
-            Информационная система для трудоустройства выпускников университета
-        </p>
+    <div class="main-header">
+        <h1>🎓 КАРЬЕРНЫЙ ЦЕНТР КЭУ</h1>
+        <p>Карагандинский экономический университет Казпотребсоюза</p>
+        <p>Платформа для трудоустройства выпускников</p>
     </div>
     """, unsafe_allow_html=True)
 
 
-def metric_card(title, value, icon="📊", delta=None):
-    """Создает карточку с метрикой"""
+def metric_card(title, value, icon="📊", change=None):
+    change_html = ""
+    if change:
+        color = "var(--success)" if change > 0 else "var(--danger)" if change < 0 else "var(--text-light)"
+        change_html = f'<div style="font-size: 0.9rem; color: {color}; margin-top: 5px;">{change:+}%</div>'
+
     st.markdown(f"""
-    <div class="metric-card slide-in">
-        <div style="font-size: 2.5rem; margin-bottom: 10px; color: var(--neon-purple);">{icon}</div>
+    <div class="metric-card">
+        <div style="font-size: 2.5rem; margin-bottom: 10px; color: var(--peach-dark);">{icon}</div>
         <div class="metric-value">{value}</div>
         <div class="metric-label">{title}</div>
-        {f'<div style="color: var(--success); font-size: 0.9rem; margin-top: 5px;">{delta}</div>' if delta else ''}
+        {change_html}
     </div>
     """, unsafe_allow_html=True)
 
 
-# ========== НОВЫЕ СТРАНИЦЫ ==========
-def notifications_page():
-    """Страница уведомлений"""
-    st.header("🔔 Уведомления")
+def back_button():
+    """Универсальная кнопка назад"""
+    if st.button("⬅️ Назад", key="back_button"):
+        st.session_state.page = 'dashboard'
+        st.rerun()
 
-    try:
-        notifications = st.session_state.db_manager.get_notifications()
 
-        if not notifications.empty:
-            unread_count = len(notifications[notifications['is_read'] == 0])
+# ========== САЙДБАР ==========
+def create_sidebar():
+    with st.sidebar:
+        # Логотип
+        st.markdown("""
+        <div class="logo-container">
+            <div style="font-size: 3.5rem; color: var(--peach-dark);">🎓</div>
+            <h2>КЭУ Казпотребсоюза</h2>
+            <p>Карьерный центр</p>
+        </div>
+        """, unsafe_allow_html=True)
 
-            if unread_count > 0:
-                st.markdown(f"""
-                <div class="content-card">
-                    <h3 style="color: var(--neon-purple);">
-                        📬 Новых уведомлений: <span style="color: var(--danger);">{unread_count}</span>
-                    </h3>
+        # Профиль пользователя
+        user = st.session_state.user
+        st.markdown(f"""
+        <div class="user-profile">
+            <div style="font-size: 2rem; color: var(--peach-primary);">
+                {'👨‍💼' if user['role'] == 'admin' else '👨‍🎓'}
+            </div>
+            <h4>{user['full_name']}</h4>
+            <div class="user-role">
+                {'Администратор' if user['role'] == 'admin' else 'Студент'}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Разделитель
+        st.markdown("---")
+
+        # Навигация для студентов
+        if user['role'] == 'student':
+            nav_items = [
+                ("🏠 Главная", "dashboard"),
+                ("👤 Мой профиль", "profile"),
+                ("💼 Вакансии", "vacancies"),
+                ("📨 Мои отклики", "my_applications"),
+                ("📊 Статистика", "stats")
+            ]
+        # Навигация для админа
+        else:
+            nav_items = [
+                ("🏠 Главная", "dashboard"),
+                ("👨‍🎓 Все студенты", "students"),
+                ("👨‍🎓 Детальная таблица", "students_detailed"),
+                ("💼 Вакансии", "vacancies"),
+                ("📨 Все отклики", "applications"),
+                ("📊 Аналитика", "analytics"),
+                ("➕ Новая вакансия", "add_vacancy")
+            ]
+
+        # Создаем кнопки навигации с уникальными ключами
+        for i, (label, page_key) in enumerate(nav_items):
+            button_type = "admin" if user['role'] == 'admin' else "student"
+            key = f"nav_{page_key}_{i}_{user['role']}"
+
+            if st.button(label, key=key, use_container_width=True):
+                st.session_state.page = page_key
+                st.rerun()
+
+        st.markdown("---")
+
+        # Статистика в сайдбаре
+        try:
+            stats = st.session_state.db_manager.get_statistics()
+            st.markdown(f"""
+            <div style="background: white; padding: 15px; border-radius: 10px; border: 2px solid var(--peach-light); 
+                         box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1);">
+                <h4 style="color: var(--peach-dark); margin: 0 0 10px 0; text-align: center;">
+                    📊 Быстрая статистика
+                </h4>
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: var(--peach-dark);">{stats['total_students']}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-light);">Студентов</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: var(--peach-dark);">{stats['active_vacancies']}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-light);">Вакансий</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: var(--peach-dark);">{stats['total_applications']}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-light);">Откликов</div>
+                    </div>
+                    <div style="text-align: center;">
+                        <div style="font-size: 1.2rem; font-weight: 700; color: var(--peach-dark);">{stats['accepted_applications']}</div>
+                        <div style="font-size: 0.8rem; color: var(--text-light);">Принято</div>
+                    </div>
                 </div>
-                """, unsafe_allow_html=True)
+            </div>
+            """, unsafe_allow_html=True)
+        except Exception as e:
+            st.error(f"Ошибка статистики: {e}")
 
-            # Отображение уведомлений
-            for _, notification in notifications.iterrows():
-                with st.container():
-                    bg_color = "rgba(157, 78, 221, 0.1)" if notification['is_read'] == 0 else "rgba(20, 20, 43, 0.8)"
-                    border_color = "var(--neon-purple)" if notification['is_read'] == 0 else "rgba(157, 78, 221, 0.3)"
+        st.markdown("<br>", unsafe_allow_html=True)
 
-                    st.markdown(f"""
-                    <div style="background: {bg_color}; border: 1px solid {border_color}; 
-                            border-radius: 10px; padding: 15px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: center;">
-                            <h4 style="margin: 0; color: var(--neon-purple);">{notification['title']}</h4>
-                            <span style="color: var(--text-dim); font-size: 0.9rem;">
-                                {notification['created_at'][:16]}
-                            </span>
-                        </div>
-                        <p style="margin: 10px 0 0 0; color: var(--text-light);">{notification['message']}</p>
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # Кнопка "Прочитано"
-                    if notification['is_read'] == 0:
-                        col1, col2 = st.columns([1, 5])
-                        with col1:
-                            if st.button("✓ Прочитано", key=f"read_{notification['id']}"):
-                                st.session_state.db_manager.mark_notification_as_read(notification['id'])
-                                st.success("Уведомление отмечено как прочитанное!")
-                                st.rerun()
-                        st.markdown("---")
-        else:
-            st.info("📭 У вас пока нет уведомлений")
-    except Exception as e:
-        st.error(f"Ошибка при загрузке уведомлений: {e}")
-
-    # Кнопка тестового уведомления
-    if st.button("➕ Добавить тестовое уведомление", type="secondary"):
-        st.session_state.db_manager.add_notification(
-            1,
-            "Тестовое уведомление",
-            "Это тестовое уведомление для демонстрации работы системы",
-            "info"
-        )
-        st.success("✅ Тестовое уведомление добавлено!")
-        st.rerun()
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
+        # Кнопка выхода
+        if st.button("🚪 Выйти", key="logout_button", use_container_width=True, type="secondary"):
+            logout()
 
 
-def employment_reports_page():
-    """Страница отчетов о трудоустройстве"""
-    st.header("📊 Отчеты о трудоустройстве")
-
-    try:
-        reports = st.session_state.db_manager.get_employment_reports()
-
-        if not reports.empty:
-            # Статистика
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("Всего трудоустроено", len(reports))
-            with col2:
-                # ИСПРАВЛЕННЫЙ РАСЧЕТ СРЕДНЕЙ ЗАРПЛАТЫ
-                try:
-                    # Функция для извлечения числа из строки зарплаты
-                    def extract_salary(salary_str):
-                        if pd.isna(salary_str):
-                            return 0
-
-                        # Преобразуем в строку
-                        salary_str = str(salary_str)
-
-                        # Ищем числа в строке
-                        import re
-                        # Ищем все числа в строке (включая с запятыми)
-                        numbers = re.findall(r'[\d,]+(?:\.\d+)?', salary_str)
-
-                        if numbers:
-                            # Берем первое найденное число
-                            first_num = numbers[0].replace(',', '')
-                            try:
-                                return float(first_num)
-                            except:
-                                return 0
-                        return 0
-
-                    # Применяем функцию ко всем зарплатам
-                    salaries = reports['salary'].apply(extract_salary)
-
-                    # Фильтруем нулевые значения
-                    valid_salaries = salaries[salaries > 0]
-
-                    if len(valid_salaries) > 0:
-                        avg_salary = valid_salaries.mean()
-                        st.metric("Средняя зарплата", f"{avg_salary:,.0f} KZT")
-                    else:
-                        st.metric("Средняя зарплата", "Нет данных")
-                except Exception as e:
-                    st.metric("Средняя зарплата", "Ошибка")
-                    st.caption(f"Ошибка расчета: {str(e)}")
-
-            with col3:
-                try:
-                    latest_date = pd.to_datetime(reports['employment_date']).max()
-                    st.metric("Последнее трудоустройство", latest_date.strftime('%d.%m.%Y'))
-                except:
-                    st.metric("Последнее трудоустройство", "Нет данных")
-
-            # Таблица отчетов
-            st.subheader("📋 История трудоустройства")
-
-            # Показываем зарплаты как есть
-            display_cols = ['full_name', 'company_name', 'position', 'employment_date', 'salary']
-            st.dataframe(
-                reports[display_cols].rename(columns={
-                    'full_name': 'Студент',
-                    'company_name': 'Компания',
-                    'position': 'Должность',
-                    'employment_date': 'Дата трудоустройства',
-                    'salary': 'Зарплата'
-                }),
-                use_container_width=True,
-                hide_index=True
-            )
-
-            # Дополнительная информация о зарплатах
-            with st.expander("📊 Детальная статистика по зарплатам"):
-                if 'salary' in reports.columns:
-                    st.write("**Примеры записей зарплат:**")
-                    for i, salary in enumerate(reports['salary'].head(5)):
-                        st.write(f"{i + 1}. `{salary}`")
-
-                    # Показываем статистику по зарплатам
-                    try:
-                        salaries_numeric = reports['salary'].apply(extract_salary)
-                        valid_salaries = salaries_numeric[salaries_numeric > 0]
-
-                        if len(valid_salaries) > 0:
-                            st.write(f"**Корректных записей:** {len(valid_salaries)} из {len(reports)}")
-                            col_s1, col_s2, col_s3 = st.columns(3)
-                            with col_s1:
-                                st.metric("Мин. зарплата", f"{valid_salaries.min():,.0f} KZT")
-                            with col_s2:
-                                st.metric("Медиана", f"{valid_salaries.median():,.0f} KZT")
-                            with col_s3:
-                                st.metric("Макс. зарплата", f"{valid_salaries.max():,.0f} KZT")
-                    except:
-                        st.warning("Не удалось проанализировать зарплаты")
-        else:
-            st.info("📝 Пока нет отчетов о трудоустройстве")
-    except Exception as e:
-        st.error(f"Ошибка при загрузке отчетов: {e}")
-
-    # Форма добавления отчета - ТАКЖЕ ИСПРАВИТЬ ПОДСКАЗКУ
-    with st.expander("➕ Добавить отчет о трудоустройстве"):
-        st.info("💡 **Формат зарплаты:** '300 000 KZT' или '400 000-500 000 KZT' или 'от 350 000 KZT'")
-
-        with st.form(key="employment_report_form"):
-            col1, col2 = st.columns(2)
-
-            with col1:
-                students = st.session_state.db_manager.get_all_students()
-                student_options = {row['id']: row['full_name'] for _, row in students.iterrows()}
-                selected_student = st.selectbox("Выберите студента", options=list(student_options.keys()),
-                                                format_func=lambda x: student_options[x])
-
-                company_name = st.text_input("Название компании")
-
-            with col2:
-                position = st.text_input("Должность")
-                employment_date = st.date_input("Дата трудоустройства")
-                salary = st.text_input("Зарплата", placeholder="Например: 400 000 KZT",
-                                       help="Укажите в формате: '400 000 KZT' или '350 000-500 000 KZT'")
-
-            submitted = st.form_submit_button("📤 Добавить отчет")
-
-            if submitted:
-                if all([selected_student, company_name, position, salary]):
-                    try:
-                        st.session_state.db_manager.add_employment_report(
-                            selected_student, company_name, position,
-                            employment_date.strftime('%Y-%m-%d'), salary
-                        )
-                        st.success("✅ Отчет о трудоустройстве добавлен!")
-                        st.rerun()
-                    except Exception as e:
-                        st.error(f"❌ Ошибка: {str(e)}")
-                else:
-                    st.warning("⚠️ Пожалуйста, заполните все поля")
-
-    # Кнопка "В главное меню"
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
-
-
-def applications_page():
-    """Страница откликов на вакансии"""
-    st.header("📨 Отклики на вакансии")
-
-    try:
-        applications = st.session_state.db_manager.get_applications()
-
-        if not applications.empty:
-            # Статистика по статусам
-            status_counts = applications['status'].value_counts()
-
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                st.metric("Всего откликов", len(applications))
-            with col2:
-                pending = status_counts.get('pending', 0)
-                st.metric("Ожидают", pending, delta=f"{pending} на рассмотрении")
-            with col3:
-                accepted = status_counts.get('accepted', 0)
-                st.metric("Приняты", accepted, delta=f"{accepted} принято")
-            with col4:
-                rejected = status_counts.get('rejected', 0)
-                st.metric("Отклонены", rejected, delta=f"{rejected} отклонено")
-
-            # Фильтры
-            st.subheader("🔍 Фильтр откликов")
-            col_filter1, col_filter2 = st.columns(2)
-            with col_filter1:
-                status_filter = st.selectbox("Фильтр по статусу",
-                                             ["Все", "pending", "accepted", "rejected"])
-            with col_filter2:
-                search_application = st.text_input("Поиск по студенту/вакансии")
-
-            # Применение фильтров
-            filtered_apps = applications.copy()
-            if status_filter != "Все":
-                filtered_apps = filtered_apps[filtered_apps['status'] == status_filter]
-            if search_application:
-                filtered_apps = filtered_apps[filtered_apps.apply(
-                    lambda row: search_application.lower() in str(row['full_name']).lower() or
-                                search_application.lower() in str(row['position']).lower(), axis=1)]
-
-            # Отображение откликов
-            for _, app in filtered_apps.iterrows():
-                with st.container():
-                    status_class = f"status-{app['status']}"
-                    status_text = {
-                        'pending': '⏳ Ожидает',
-                        'accepted': '✅ Принято',
-                        'rejected': '❌ Отклонено'
-                    }.get(app['status'], app['status'])
-
-                    st.markdown(f"""
-                    <div class="content-card">
-                        <div style="display: flex; justify-content: space-between; align-items: start;">
-                            <div>
-                                <h4 style="margin: 0; color: var(--neon-purple);">{app['position']}</h4>
-                                <p style="margin: 5px 0; color: var(--text-dim);">{app['company_name']}</p>
-                                <p style="margin: 0;"><strong>Студент:</strong> {app['full_name']}</p>
-                                <p style="margin: 5px 0;"><strong>Дата отклика:</strong> {app['application_date'][:10]}</p>
-                            </div>
-                            <span class="status-badge {status_class}">{status_text}</span>
-                        </div>
-                        {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"][:200]}...</p>' if app['cover_letter'] else ''}
-                    </div>
-                    """, unsafe_allow_html=True)
-
-                    # Кнопки управления статусом
-                    col_status1, col_status2, col_status3, _ = st.columns([1, 1, 1, 3])
-                    with col_status1:
-                        if app['status'] != 'accepted':
-                            if st.button("✅ Принять", key=f"accept_{app['id']}"):
-                                st.session_state.db_manager.update_application_status(app['id'], 'accepted')
-                                st.success("Статус изменен на 'Принято'")
-                                st.rerun()
-                    with col_status2:
-                        if app['status'] != 'rejected':
-                            if st.button("❌ Отклонить", key=f"reject_{app['id']}"):
-                                st.session_state.db_manager.update_application_status(app['id'], 'rejected')
-                                st.success("Статус изменен на 'Отклонено'")
-                                st.rerun()
-                    with col_status3:
-                        if st.button("📋 Подробнее", key=f"details_{app['id']}"):
-                            with st.expander("Детали отклика", expanded=True):
-                                if app['cover_letter']:
-                                    st.markdown(f"**Сопроводительное письмо:**\n{app['cover_letter']}")
-                                st.markdown(f"**Дата отправки:** {app['application_date']}")
-                    st.markdown("---")
-        else:
-            st.info("📭 Пока нет откликов на вакансии")
-    except Exception as e:
-        st.error(f"Ошибка при загрузке откликов: {e}")
-
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
-
-
-# ========== ОСНОВНЫЕ СТРАНИЦЫ ==========
-def dashboard_page():
-    """Главная панель управления"""
+# ========== СТРАНИЦЫ СТУДЕНТА ==========
+def student_dashboard():
     create_header()
 
+    user = st.session_state.user
+    db = st.session_state.db_manager
+
     try:
-        stats = st.session_state.db_manager.get_statistics()
+        # Получаем данные студента
+        student = db.get_student_by_user_id(user['id'])
+        stats = db.get_statistics()
+
+        # Приветствие
+        st.markdown(f"""
+        <div class="content-card">
+            <h2>👋 Добро пожаловать, {user['full_name'].split()[0]}!</h2>
+            <p>Рады видеть вас в Карьерном центре КЭУ. Здесь вы можете найти подходящие вакансии и начать свою карьеру.</p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        # Быстрые действия
+        st.subheader("⚡ Быстрые действия")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if st.button("👤 Заполнить профиль", key="student_profile_btn", use_container_width=True):
+                st.session_state.page = 'profile'
+                st.rerun()
+        with col2:
+            if st.button("💼 Найти вакансии", key="student_vacancies_btn", use_container_width=True):
+                st.session_state.page = 'vacancies'
+                st.rerun()
+        with col3:
+            if st.button("📨 Мои отклики", key="student_applications_btn", use_container_width=True):
+                st.session_state.page = 'my_applications'
+                st.rerun()
+
+        # Статистика
+        st.subheader("📊 Ваша статистика")
+        col_stat1, col_stat2, col_stat3 = st.columns(3)
+        with col_stat1:
+            metric_card("Активных вакансий", stats['active_vacancies'], "💼")
+        with col_stat2:
+            if student is not None:
+                metric_card("Ваш GPA", f"{student['gpa']:.2f}", "⭐")
+            else:
+                metric_card("Заполните профиль", "→", "📝")
+        with col_stat3:
+            metric_card("Всего студентов", stats['total_students'], "👨‍🎓")
+
+        # Последние вакансии
+        st.subheader("🔥 Последние вакансии")
+        vacancies = db.get_all_vacancies()
+        if not vacancies.empty:
+            for i, vacancy in vacancies.head(3).iterrows():
+                with st.container():
+                    st.markdown(f"""
+                    <div class="content-card">
+                        <h4 style="color: var(--peach-dark); margin: 0;">{vacancy['position']}</h4>
+                        <p style="color: var(--peach-primary); font-weight: 600; margin: 5px 0;">{vacancy['company_name']}</p>
+                        <p style="margin: 5px 0;">
+                            💰 <strong>Зарплата:</strong> {vacancy['salary_range']}<br>
+                            🎯 <strong>Специальность:</strong> {vacancy['specialization']}
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("📨 Откликнуться", key=f"quick_apply_{vacancy['id']}"):
+                            if student is not None:
+                                st.session_state.current_vacancy_id = vacancy['id']
+                                st.session_state.page = 'apply_vacancy'
+                                st.rerun()
+                            else:
+                                st.warning("Сначала заполните свой профиль!")
+                    with col_btn2:
+                        if st.button("📋 Подробнее", key=f"details_{vacancy['id']}"):
+                            with st.expander("Подробная информация"):
+                                st.write(f"**Описание:** {vacancy['description']}")
+                                st.write(f"**Требования:** {vacancy['requirements']}")
+                                st.write(f"**Контакты:** {vacancy['contact_email']}")
+                                st.write(f"**Дедлайн:** {vacancy['application_deadline']}")
+                    st.markdown("---")
+        else:
+            st.info("Пока нет активных вакансий")
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+def student_profile():
+    st.header("👤 Мой профиль")
+    back_button()
+
+    user = st.session_state.user
+    db = st.session_state.db_manager
+
+    # Получаем текущие данные студента
+    student = db.get_student_by_user_id(user['id'])
+
+    with st.form("student_profile_form", clear_on_submit=False):
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            full_name = st.text_input("ФИО *",
+                                      value=student['full_name'] if student is not None else user['full_name'],
+                                      key="profile_full_name")
+            course = st.selectbox("Курс *", COURSE_OPTIONS,
+                                  index=3 if student is None else COURSE_OPTIONS.index(student['course']) if student[
+                                                                                                                 'course'] in COURSE_OPTIONS else 3,
+                                  key="profile_course")
+            specialization = st.selectbox("Специальность *", SPECIALIZATION_OPTIONS,
+                                          index=0 if student is None else SPECIALIZATION_OPTIONS.index(
+                                              student['specialization']) if student[
+                                                                                'specialization'] in SPECIALIZATION_OPTIONS else 0,
+                                          key="profile_specialization")
+            email = st.text_input("Email *",
+                                  value=student['email'] if student is not None else "",
+                                  key="profile_email")
+
+        with col2:
+            contact_number = st.text_input("Контактный номер *",
+                                           value=student['contact_number'] if student is not None else "",
+                                           key="profile_phone")
+            programming_languages = st.multiselect("Навыки и технологии", SKILL_OPTIONS,
+                                                   default=student['programming_languages'].split(
+                                                       ', ') if student is not None and student[
+                                                       'programming_languages'] else [],
+                                                   key="profile_skills")
+            gpa = st.number_input("Средний балл (GPA)", min_value=0.0, max_value=4.0, step=0.1,
+                                  value=float(student['gpa']) if student is not None and student['gpa'] else 3.0,
+                                  key="profile_gpa")
+            graduation_year = st.number_input("Год выпуска", min_value=2024, max_value=2030,
+                                              value=int(student['graduation_year']) if student is not None and student[
+                                                  'graduation_year'] else 2024,
+                                              key="profile_year")
+
+        work_experience = st.text_area("Опыт работы и практики",
+                                       value=student['work_experience'] if student is not None else "",
+                                       height=120,
+                                       placeholder="Опишите ваш опыт работы, практики, проекты...",
+                                       key="profile_experience")
+
+        portfolio_link = st.text_input("Ссылка на портфолио (опционально)",
+                                       value=student['portfolio_link'] if student is not None else "",
+                                       placeholder="https://...",
+                                       key="profile_portfolio")
+
+        is_active = st.checkbox("Активно ищу работу/стажировку",
+                                value=bool(student['is_active']) if student is not None else True,
+                                key="profile_active")
+
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        col_btn1, col_btn2, col_btn3 = st.columns([1, 1, 2])
+        with col_btn1:
+            submitted = st.form_submit_button("💾 Сохранить", use_container_width=True, key="profile_submit")
+        with col_btn2:
+            if st.form_submit_button("❌ Отмена", use_container_width=True, key="profile_cancel"):
+                st.session_state.page = 'dashboard'
+                st.rerun()
+
+        if submitted:
+            if all([full_name, email, contact_number]):
+                skills_str = ", ".join(programming_languages)
+                student_data = (
+                    full_name, course, specialization, skills_str,
+                    work_experience, portfolio_link, contact_number,
+                    email, gpa, graduation_year, int(is_active)
+                )
+
+                try:
+                    if student is not None:
+                        # Обновляем существующую запись
+                        db.update_student(user['id'], student_data)
+                        st.success("✅ Профиль успешно обновлен!")
+                    else:
+                        # Создаем новую запись
+                        db.insert_student(user['id'], student_data)
+                        st.success("✅ Профиль успешно создан!")
+                        st.balloons()
+
+                    st.session_state.page = 'dashboard'
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Ошибка сохранения: {str(e)}")
+            else:
+                st.warning("⚠️ Пожалуйста, заполните все обязательные поля (отмечены *)")
+
+
+def student_vacancies():
+    st.header("💼 Доступные вакансии")
+    back_button()
+
+    db = st.session_state.db_manager
+
+    try:
+        vacancies = db.get_all_vacancies()
+
+        if not vacancies.empty:
+            # Фильтры
+            col_filter1, col_filter2 = st.columns(2)
+            with col_filter1:
+                search_query = st.text_input("🔍 Поиск", placeholder="Должность, компания...", key="vacancy_search")
+            with col_filter2:
+                spec_filter = st.selectbox("Специальность", ["Все"] + SPECIALIZATION_OPTIONS, key="vacancy_spec_filter")
+
+            # Применяем фильтры
+            filtered_vacancies = vacancies.copy()
+            if search_query:
+                filtered_vacancies = filtered_vacancies[
+                    filtered_vacancies['position'].str.contains(search_query, case=False, na=False) |
+                    filtered_vacancies['company_name'].str.contains(search_query, case=False, na=False)
+                    ]
+            if spec_filter != "Все":
+                filtered_vacancies = filtered_vacancies[filtered_vacancies['specialization'] == spec_filter]
+
+            # Отображаем вакансии
+            for i, vacancy in filtered_vacancies.iterrows():
+                with st.container():
+                    st.markdown(f"""
+                    <div class="content-card">
+                        <h3 style="color: var(--peach-dark); margin: 0;">{vacancy['position']}</h3>
+                        <p style="color: var(--peach-primary); font-size: 1.1rem; font-weight: 600; margin: 5px 0;">
+                            {vacancy['company_name']}
+                        </p>
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px; margin: 15px 0;">
+                            <span style="background: var(--peach-light); color: var(--peach-dark); 
+                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
+                                🎯 {vacancy['specialization']}
+                            </span>
+                            <span style="background: rgba(255, 160, 122, 0.2); color: var(--peach-dark); 
+                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
+                                📚 Курс {vacancy['required_course']}+
+                            </span>
+                            <span style="background: rgba(255, 152, 0, 0.1); color: var(--warning); 
+                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
+                                💰 {vacancy['salary_range']}
+                            </span>
+                        </div>
+                        <p style="color: var(--text-dark); line-height: 1.6;">
+                            {vacancy['description'][:200]}...
+                        </p>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                    col_btn1, col_btn2 = st.columns(2)
+                    with col_btn1:
+                        if st.button("📨 Откликнуться", key=f"apply_vac_{vacancy['id']}", use_container_width=True):
+                            # Проверяем, заполнен ли профиль
+                            student = db.get_student_by_user_id(st.session_state.user['id'])
+                            if student is not None:
+                                st.session_state.current_vacancy_id = vacancy['id']
+                                st.session_state.page = 'apply_vacancy'
+                                st.rerun()
+                            else:
+                                st.warning("Сначала заполните свой профиль в разделе 'Мой профиль'")
+                    with col_btn2:
+                        if st.button("📋 Подробнее", key=f"more_vac_{vacancy['id']}", use_container_width=True):
+                            with st.expander("Полная информация о вакансии", expanded=True):
+                                st.write(f"**Описание:**")
+                                st.write(vacancy['description'])
+                                st.write(f"**Требования:**")
+                                st.write(vacancy['requirements'])
+                                st.write(f"**Контакты:** {vacancy['contact_email']}")
+                                st.write(f"**Дедлайн подачи:** {vacancy['application_deadline']}")
+                    st.markdown("---")
+        else:
+            st.info("💼 Активных вакансий пока нет")
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+def student_apply_vacancy():
+    st.header("📨 Отклик на вакансию")
+    back_button()
+
+    if 'current_vacancy_id' not in st.session_state:
+        st.warning("Сначала выберите вакансию для отклика")
+        if st.button("⬅️ К вакансиям", key="back_to_vacancies"):
+            st.session_state.page = 'vacancies'
+            st.rerun()
+        return
+
+    db = st.session_state.db_manager
+    user = st.session_state.user
+
+    try:
+        # Получаем информацию о вакансии
+        vacancies = db.get_all_vacancies()
+        vacancy = vacancies[vacancies['id'] == st.session_state.current_vacancy_id].iloc[0]
+
+        # Получаем данные студента
+        student = db.get_student_by_user_id(user['id'])
+
+        if student is None:
+            st.error("Сначала заполните свой профиль!")
+            if st.button("👤 Заполнить профиль", key="fill_profile_first"):
+                st.session_state.page = 'profile'
+                st.rerun()
+            return
+
+        st.markdown(f"""
+        <div class="content-card">
+            <h3>{vacancy['position']}</h3>
+            <p style="font-size: 1.1rem; color: var(--peach-primary);">
+                Компания: <strong>{vacancy['company_name']}</strong>
+            </p>
+            <p>Зарплата: <strong>{vacancy['salary_range']}</strong></p>
+            <p>Требуемый курс: <strong>{vacancy['required_course']}+</strong></p>
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.subheader("Ваши данные")
+        st.info(f"""
+        **ФИО:** {student['full_name']}
+        **Специальность:** {student['specialization']}
+        **Курс:** {student['course']}
+        **GPA:** {student['gpa']}
+        **Email:** {student['email']}
+        **Телефон:** {student['contact_number']}
+        """)
+
+        st.subheader("Сопроводительное письмо")
+        cover_letter = st.text_area(
+            "Расскажите, почему вы подходите для этой должности",
+            height=150,
+            placeholder="Опишите ваш опыт, навыки и почему вы хотите работать в этой компании...",
+            key="cover_letter_text"
+        )
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            if st.button("📤 Отправить отклик", key="send_application", use_container_width=True):
+                try:
+                    db.apply_for_vacancy(student['id'], vacancy['id'], cover_letter)
+                    st.success("✅ Ваш отклик успешно отправлен!")
+                    st.balloons()
+
+                    # Очищаем состояние и возвращаемся
+                    del st.session_state.current_vacancy_id
+                    st.session_state.page = 'my_applications'
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Ошибка при отправке: {str(e)}")
+
+        with col_btn2:
+            if st.button("❌ Отмена", key="cancel_application", use_container_width=True):
+                del st.session_state.current_vacancy_id
+                st.session_state.page = 'vacancies'
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+def student_my_applications():
+    st.header("📨 Мои отклики")
+    back_button()
+
+    user = st.session_state.user
+    db = st.session_state.db_manager
+
+    try:
+        # Получаем данные студента
+        student = db.get_student_by_user_id(user['id'])
+
+        if student is None:
+            st.info("У вас еще нет профиля. Сначала заполните его.")
+            if st.button("👤 Заполнить профиль", key="create_profile_for_apps"):
+                st.session_state.page = 'profile'
+                st.rerun()
+            return
+
+        # Получаем отклики студента
+        applications = db.get_applications_by_student(student['id'])
+
+        if not applications.empty:
+            # Статистика
+            status_counts = applications['status'].value_counts()
+
+            col_stat1, col_stat2, col_stat3 = st.columns(3)
+            with col_stat1:
+                st.metric("Всего откликов", len(applications))
+            with col_stat2:
+                pending = status_counts.get('pending', 0)
+                st.metric("На рассмотрении", pending)
+            with col_stat3:
+                accepted = status_counts.get('accepted', 0)
+                st.metric("Принято", accepted)
+
+            # Список откликов
+            for i, app in applications.iterrows():
+                status_class = f"status-{app['status']}"
+                status_text = {
+                    'pending': '⏳ На рассмотрении',
+                    'accepted': '✅ Принято',
+                    'rejected': '❌ Отклонено'
+                }.get(app['status'], app['status'])
+
+                st.markdown(f"""
+                <div class="content-card">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <h4 style="margin: 0; color: var(--peach-dark);">{app['position']}</h4>
+                            <p style="margin: 5px 0; color: var(--peach-primary);">{app['company_name']}</p>
+                            <p style="margin: 0;"><strong>Дата отклика:</strong> {app['application_date'][:10]}</p>
+                            <p style="margin: 0;"><strong>Зарплата:</strong> {app['salary_range']}</p>
+                        </div>
+                        <span class="status-badge {status_class}">{status_text}</span>
+                    </div>
+                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if app['cover_letter'] else ''}
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown("---")
+        else:
+            st.info("📭 У вас пока нет откликов на вакансии")
+            if st.button("💼 Найти вакансии", key="find_vacancies_from_apps"):
+                st.session_state.page = 'vacancies'
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+def student_stats():
+    st.header("📊 Статистика")
+    back_button()
+
+    db = st.session_state.db_manager
+    user = st.session_state.user
+
+    try:
+        student = db.get_student_by_user_id(user['id'])
+        stats = db.get_statistics()
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown('<div class="content-card">', unsafe_allow_html=True)
+            st.subheader("📈 Общая статистика")
+
+            st.metric("Всего студентов", stats['total_students'])
+            st.metric("Активных вакансий", stats['active_vacancies'])
+            st.metric("Всего откликов", stats['total_applications'])
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        with col2:
+            st.markdown('<div class="content-card">', unsafe_allow_html=True)
+            st.subheader("👤 Ваша статистика")
+
+            if student is not None:
+                # Получаем отклики студента
+                applications = db.get_applications_by_student(student['id'])
+
+                col_stat1, col_stat2 = st.columns(2)
+                with col_stat1:
+                    st.metric("Ваш GPA", f"{student['gpa']:.2f}")
+                with col_stat2:
+                    st.metric("Ваш курс", student['course'])
+
+                if not applications.empty:
+                    status_counts = applications['status'].value_counts()
+                    st.write("**Ваши отклики:**")
+                    st.write(f"- Всего: {len(applications)}")
+                    st.write(f"- На рассмотрении: {status_counts.get('pending', 0)}")
+                    st.write(f"- Принято: {status_counts.get('accepted', 0)}")
+                else:
+                    st.info("У вас пока нет откликов")
+            else:
+                st.info("Заполните свой профиль")
+                if st.button("👤 Заполнить профиль", key="fill_profile_stats"):
+                    st.session_state.page = 'profile'
+                    st.rerun()
+
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # Статистика по вакансиям
+        st.subheader("💼 Статистика по вакансиям")
+
+        vacancies = db.get_all_vacancies()
+        if not vacancies.empty:
+            # Самые популярные специальности в вакансиях
+            spec_counts = vacancies['specialization'].value_counts()
+            st.write("**Вакансии по специальностям:**")
+            for spec, count in spec_counts.items():
+                percentage = (count / len(vacancies)) * 100
+                st.progress(percentage / 100, text=f"{spec}: {count} вакансий ({percentage:.1f}%)")
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+# ========== СТРАНИЦЫ АДМИНА ==========
+def admin_dashboard():
+    create_header()
+
+    db = st.session_state.db_manager
+
+    try:
+        stats = db.get_statistics()
+
+        st.markdown(f"""
+        <div class="content-card">
+            <h2>👨‍💼 Панель администратора</h2>
+            <p>Добро пожаловать в систему управления карьерным центром КЭУ</p>
+        </div>
+        """, unsafe_allow_html=True)
 
         # Основные метрики
-        col1, col2, col3, col4, col5, col6 = st.columns(6)
+        st.subheader("📊 Ключевые показатели")
+
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
             metric_card("Всего студентов", stats['total_students'], "👨‍🎓")
         with col2:
@@ -1283,613 +1374,318 @@ def dashboard_page():
             metric_card("Вакансий", stats['active_vacancies'], "💼")
         with col4:
             metric_card("Откликов", stats['total_applications'], "📨")
-        with col5:
-            metric_card("Трудоустроено", stats['employed_students'], "📊")
-        with col6:
-            metric_card("Уведомления", stats['unread_notifications'], "🔔")
 
         # Быстрые действия
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("🚀 Быстрые действия")
+        st.subheader("⚡ Быстрые действия")
 
-        col_actions1, col_actions2, col_actions3, col_actions4, col_actions5 = st.columns(5)
-
+        col_actions1, col_actions2, col_actions3, col_actions4 = st.columns(4)
         with col_actions1:
-            if st.button("👨‍🎓 Подать заявку", use_container_width=True):
-                st.session_state.page = 'student_form'
+            if st.button("➕ Новая вакансия", key="admin_new_vacancy", use_container_width=True):
+                st.session_state.page = 'add_vacancy'
                 st.rerun()
-
         with col_actions2:
-            if st.button("💼 Вакансии", use_container_width=True):
-                st.session_state.page = 'vacancies'
+            if st.button("👨‍🎓 Все студенты", key="admin_all_students", use_container_width=True):
+                st.session_state.page = 'students'
                 st.rerun()
-
         with col_actions3:
-            if st.button("📨 Отклики", use_container_width=True):
+            if st.button("📨 Все отклики", key="admin_all_apps", use_container_width=True):
                 st.session_state.page = 'applications'
                 st.rerun()
-
         with col_actions4:
-            if st.button("📊 Трудоустройство", use_container_width=True):
-                st.session_state.page = 'employment_reports'
+            if st.button("📊 Аналитика", key="admin_analytics", use_container_width=True):
+                st.session_state.page = 'analytics'
                 st.rerun()
 
-        with col_actions5:
-            if st.button("🔔 Уведомления", use_container_width=True):
-                st.session_state.page = 'notifications'
-                st.rerun()
+        # Последние отклики - ИСПРАВЛЕНО
+        # Последние отклики - ИСПРАВЛЕНО
+        st.subheader("🔄 Последние отклики")
 
-        # Статистика
-        st.markdown("<br>", unsafe_allow_html=True)
-        col_stats1, col_stats2 = st.columns(2)
+        applications = db.get_recent_applications(10)
+        if not applications.empty and not applications.isna().all().all():
+            for i, app in applications.iterrows():
+                # Проверяем наличие данных
+                student_name = app['full_name'] if pd.notna(app['full_name']) else "Не указано"
+                position = app['position'] if pd.notna(app['position']) else "Не указано"
+                company = app['company_name'] if pd.notna(app['company_name']) else "Не указано"
+                status = app['status'] if pd.notna(app['status']) else 'pending'
 
-        with col_stats1:
-            st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            st.subheader("🎯 Активность студентов")
-            students_df = st.session_state.db_manager.get_all_students()
-            if not students_df.empty:
-                # Динамика регистрации студентов по месяцам
-                try:
-                    students_df['registration_date'] = pd.to_datetime(students_df['registration_date'])
-                    monthly_registrations = students_df.set_index('registration_date').resample('M').size()
+                status_class = f"status-{status}"
+                status_text = {
+                    'pending': '⏳ Ожидает',
+                    'accepted': '✅ Принято',
+                    'rejected': '❌ Отклонено'
+                }.get(status, 'pending')
 
-                    if len(monthly_registrations) > 0:
-                        chart_data = pd.DataFrame({
-                            'Месяц': monthly_registrations.index.strftime('%b %Y'),
-                            'Регистрации': monthly_registrations.values
-                        })
+                date_str = str(app['application_date'])[:10] if pd.notna(app['application_date']) else "Не указана"
 
-                        st.line_chart(chart_data.set_index('Месяц'))
-                except:
-                    pass
-
-                # Дополнительная статистика
-                col_stat1, col_stat2 = st.columns(2)
-                with col_stat1:
-                    recent_count = len(
-                        students_df[students_df['registration_date'] >= pd.Timestamp.now() - pd.DateOffset(months=1)])
-                    st.metric("Новых в этом месяце", recent_count)
-                with col_stat2:
-                    avg_gpa = students_df['gpa'].mean() if 'gpa' in students_df.columns else 0
-                    st.metric("Средний GPA", f"{avg_gpa:.2f}")
-            else:
-                st.info("Нет данных о студентах")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        with col_stats2:
-            st.markdown('<div class="content-card">', unsafe_allow_html=True)
-            st.subheader("🚀 Статусы откликов")
-            try:
-                applications = st.session_state.db_manager.get_applications()
-                if not applications.empty:
-                    status_counts = applications['status'].value_counts()
-
-                    fig = go.Figure(data=[go.Pie(
-                        labels=['Ожидают', 'Приняты', 'Отклонены'],
-                        values=[status_counts.get('pending', 0),
-                                status_counts.get('accepted', 0),
-                                status_counts.get('rejected', 0)],
-                        hole=.3,
-                        marker_colors=['#FFAA00', '#00FF88', '#FF3860']
-                    )])
-
-                    fig.update_layout(
-                        showlegend=True,
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        font_color='white',
-                        margin=dict(t=20, b=20, l=20, r=20)
-                    )
-
-                    st.plotly_chart(fig, use_container_width=True)
-
-                    col_stat1, col_stat2, col_stat3 = st.columns(3)
-                    with col_stat1:
-                        st.metric("Ожидают", status_counts.get('pending', 0))
-                    with col_stat2:
-                        st.metric("Приняты", status_counts.get('accepted', 0))
-                    with col_stat3:
-                        st.metric("Отклонены", status_counts.get('rejected', 0))
-                else:
-                    st.info("Пока нет откликов")
-            except Exception as e:
-                st.info("Нет данных об откликах")
-            st.markdown('</div>', unsafe_allow_html=True)
-
-        # Последние активности - ИСПРАВЛЕННАЯ ВЕРСИЯ
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown('<div class="content-card">', unsafe_allow_html=True)
-        st.subheader("🔄 Последние активности")
-
-        col_activity1, col_activity2 = st.columns(2)
-
-        with col_activity1:
-            st.markdown("**🎓 Новые студенты**")
-            try:
-                if not students_df.empty:
-                    recent_students = students_df.head(3)
-                    for _, student in recent_students.iterrows():
-                        st.markdown(f"""
-                        <div style="background: rgba(157, 78, 221, 0.1); padding: 12px; border-radius: 10px; margin-bottom: 10px;">
-                            <div style="display: flex; align-items: center; gap: 12px;">
-                                <div style="font-size: 1.8rem; color: var(--neon-purple);">👨‍🎓</div>
-                                <div>
-                                    <div style="font-weight: 600; color: var(--neon-purple);">{student['full_name']}</div>
-                                    <div style="font-size: 0.9rem; color: var(--text-dim); margin-top: 4px;">
-                                        {student['specialization']} • Курс {student['course']}
-                                    </div>
-                                </div>
-                            </div>
+                st.markdown(f"""
+                <div class="content-card">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <h4 style="margin: 0; color: var(--peach-dark);">{position}</h4>
+                            <p style="margin: 5px 0; color: var(--peach-primary);">{company}</p>
+                            <p style="margin: 0;"><strong>Студент:</strong> {student_name}</p>
+                            <p style="margin: 5px 0;"><strong>Дата:</strong> {date_str}</p>
                         </div>
-                        """, unsafe_allow_html=True)
-                else:
-                    st.info("Нет данных о студентах")
-            except Exception as e:
-                st.info("Ошибка загрузки студентов")
-
-        with col_activity2:
-            st.markdown("**💼 Активные вакансии**")
-            try:
-                vacancies_df = st.session_state.db_manager.get_all_vacancies()
-                if not vacancies_df.empty:
-                    for idx, vacancy in vacancies_df.head(3).iterrows():
-                        try:
-                            # Безопасное вычисление дней
-                            if pd.notna(vacancy['application_deadline']):
-                                deadline_date = pd.to_datetime(vacancy['application_deadline'])
-                                days_left = (deadline_date - pd.Timestamp.now()).days
-                                days_left = max(0, days_left)
-                                days_text = f"• {days_left} дней"
-                                days_color = "#FF3860" if days_left < 7 else "#FFAA00" if days_left < 30 else "#00FF88"
-                            else:
-                                days_text = ""
-                                days_color = "var(--text-dim)"
-
-                            position = str(vacancy['position'])[:25] + (
-                                "..." if len(str(vacancy['position'])) > 25 else "")
-                            company = str(vacancy['company_name'])[:20] + (
-                                "..." if len(str(vacancy['company_name'])) > 20 else "")
-
-                            st.markdown(f"""
-                            <div style="background: rgba(0, 229, 255, 0.1); padding: 12px; border-radius: 10px; margin-bottom: 10px;">
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="font-size: 1.8rem; color: var(--neon-blue);">💼</div>
-                                    <div>
-                                        <div style="font-weight: 600; color: var(--neon-blue);">{position}</div>
-                                        <div style="font-size: 0.9rem; color: var(--text-dim); margin-top: 4px;">
-                                            {company} <span style="color: {days_color};">{days_text}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                        except:
-                            # Простая версия без дней
-                            st.markdown(f"""
-                            <div style="background: rgba(0, 229, 255, 0.1); padding: 12px; border-radius: 10px; margin-bottom: 10px;">
-                                <div style="display: flex; align-items: center; gap: 12px;">
-                                    <div style="font-size: 1.8rem; color: var(--neon-blue);">💼</div>
-                                    <div>
-                                        <div style="font-weight: 600; color: var(--neon-blue);">{vacancy['position'][:25]}</div>
-                                        <div style="font-size: 0.9rem; color: var(--text-dim); margin-top: 4px;">
-                                            {vacancy['company_name'][:20]}
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            """, unsafe_allow_html=True)
-                else:
-                    st.info("Нет активных вакансий")
-            except Exception as e:
-                st.info("Ошибка загрузки вакансий")
-
-        st.markdown('</div>', unsafe_allow_html=True)
+                        <span class="status-badge {status_class}">{status_text}</span>
+                    </div>
+                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if pd.notna(app["cover_letter"]) and app["cover_letter"] else ''}
+                </div>
+                """, unsafe_allow_html=True)
+                st.markdown("---")
+        else:
+            st.info("Пока нет откликов")
 
     except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {str(e)}")
-
-    # Кнопка возврата в меню (если нужно)
-    if st.session_state.page != 'dashboard':
-        if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-            st.session_state.page = 'dashboard'
-            st.rerun()
+        st.error(f"Ошибка: {str(e)}")
 
 
-def student_management_page():
-    """Управление студентами"""
+def admin_students():
     st.header("👨‍🎓 Управление студентами")
+    back_button()
 
-    # Поиск и фильтры
-    with st.container():
-        st.markdown('<div class="content-card">', unsafe_allow_html=True)
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            search_query = st.text_input("🔍 Поиск по имени", placeholder="Введите ФИО...")
-        with col2:
-            course_filter = st.selectbox("Фильтр по курсу", ["Все"] + COURSE_OPTIONS)
-        with col3:
-            spec_filter = st.selectbox("Фильтр по специальности", ["Все"] + SPECIALIZATION_OPTIONS)
-        st.markdown('</div>', unsafe_allow_html=True)
+    db = st.session_state.db_manager
 
     try:
-        # Получение данных
-        students_df = st.session_state.db_manager.get_all_students()
+        students = db.get_all_students()
 
-        # Применение фильтров
-        if not students_df.empty:
-            if search_query:
-                students_df = students_df[students_df['full_name'].str.contains(search_query, case=False, na=False)]
-            if course_filter != "Все":
-                students_df = students_df[students_df['course'] == course_filter]
-            if spec_filter != "Все":
-                students_df = students_df[students_df['specialization'] == spec_filter]
+        if not students.empty:
+            # Поиск и фильтры
+            col_filter1, col_filter2, col_filter3 = st.columns(3)
+            with col_filter1:
+                search_name = st.text_input("Поиск по ФИО", key="admin_search_name")
+            with col_filter2:
+                search_course = st.selectbox("Курс", ["Все"] + COURSE_OPTIONS, key="admin_search_course")
+            with col_filter3:
+                search_spec = st.selectbox("Специальность", ["Все"] + SPECIALIZATION_OPTIONS, key="admin_search_spec")
 
-        # Таблица студентов
-        if not students_df.empty:
-            display_cols = ['id', 'full_name', 'course', 'specialization', 'programming_languages', 'is_active']
+            # Применяем фильтры
+            filtered_students = students.copy()
+            if search_name:
+                filtered_students = filtered_students[
+                    filtered_students['full_name'].str.contains(search_name, case=False, na=False)]
+            if search_course != "Все":
+                filtered_students = filtered_students[filtered_students['course'] == search_course]
+            if search_spec != "Все":
+                filtered_students = filtered_students[filtered_students['specialization'] == search_spec]
+
+            # Таблица студентов
+            display_df = filtered_students[
+                ['full_name', 'course', 'specialization', 'gpa', 'is_active', 'email', 'contact_number']].copy()
+            display_df['is_active'] = display_df['is_active'].apply(lambda x: '✅' if x == 1 else '❌')
+
             st.dataframe(
-                students_df[display_cols].rename(columns={
-                    'id': 'ID',
+                display_df.rename(columns={
                     'full_name': 'ФИО',
                     'course': 'Курс',
                     'specialization': 'Специальность',
-                    'programming_languages': 'Навыки',
-                    'is_active': 'Активен'
+                    'gpa': 'GPA',
+                    'is_active': 'Активен',
+                    'email': 'Email',
+                    'contact_number': 'Телефон'
                 }),
                 use_container_width=True,
                 hide_index=True
             )
 
-            # Детальный просмотр
-            st.subheader("🔍 Детальный просмотр")
-            selected_id = st.selectbox(
-                "Выберите студента для просмотра",
-                options=students_df['id'].tolist(),
-                format_func=lambda x: f"ID {x}: {students_df[students_df['id'] == x]['full_name'].iloc[0]}"
-            )
+            # Статистика
+            st.subheader("📊 Статистика студентов")
 
-            if selected_id:
-                student = st.session_state.db_manager.get_student_by_id(selected_id)
-                if student is not None:
-                    with st.expander(f"📋 Профиль студента {student['full_name']}", expanded=True):
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            st.markdown(f"**🎓 ФИО:** {student['full_name']}")
-                            st.markdown(f"**📚 Курс:** {student['course']}")
-                            st.markdown(f"**🎯 Специальность:** {student['specialization']}")
-                            st.markdown(f"**🏫 Университет:** {student['university']}")
-                            st.markdown(f"**📅 Год выпуска:** {student['graduation_year']}")
-                        with col2:
-                            st.markdown(f"**📧 Email:** {student['email']}")
-                            st.markdown(f"**📱 Телефон:** {student['contact_number']}")
-                            st.markdown(f"**📊 GPA:** {student['gpa']}")
-                            st.markdown(f"**🔧 Навыки:** {student['programming_languages']}")
-                            st.markdown(
-                                f"**🔍 Статус:** {'Активен в поиске ✅' if student['is_active'] else 'Не активен ❌'}")
+            col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
+            with col_stat1:
+                st.metric("Всего студентов", len(students))
+            with col_stat2:
+                active_count = len(students[students['is_active'] == 1])
+                st.metric("Активно ищут", active_count)
+            with col_stat3:
+                avg_gpa = students['gpa'].mean() if 'gpa' in students.columns and not students[
+                    'gpa'].isna().all() else 0
+                st.metric("Средний GPA", f"{avg_gpa:.2f}")
+            with col_stat4:
+                most_popular = students['specialization'].mode()[0] if not students[
+                    'specialization'].mode().empty else "Нет данных"
+                st.metric("Популярная спец.", most_popular)
 
-                        st.markdown("**💼 Опыт работы:**")
-                        st.info(
-                            student['work_experience'] if pd.notna(student['work_experience']) else "Опыт не указан")
-
-                        if student['portfolio_link'] and pd.notna(student['portfolio_link']):
-                            st.markdown(f"**📂 Портфолио:** [{student['portfolio_link']}]({student['portfolio_link']})")
-
-                        # Кнопки действий
-                        col_edit, col_delete, col_report = st.columns([1, 1, 2])
-                        if col_edit.button("✏️ Редактировать", key=f"edit_{selected_id}"):
-                            st.session_state.edit_mode = True
-                            st.session_state.current_student_id = selected_id
-                            st.session_state.page = 'student_form'
-                            st.rerun()
-
-                        if col_delete.button("🗑️ Удалить", key=f"delete_{selected_id}", type="secondary"):
-                            if st.checkbox("Подтвердите удаление"):
-                                st.session_state.db_manager.delete_student(selected_id)
-                                st.success("Студент удален!")
-                                st.rerun()
-
-                        if col_report.button("📝 Отчет о трудоустройстве", key=f"report_{selected_id}"):
-                            st.session_state.page = 'employment_reports'
-                            st.rerun()
         else:
-            st.info("👤 Студенты не найдены")
+            st.info("Пока нет зарегистрированных студентов")
+
     except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {e}")
-
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
+        st.error(f"Ошибка: {str(e)}")
 
 
-def student_form_page():
-    """Форма добавления/редактирования студента"""
-    st.header("📝 Форма студента")
+def admin_students_detailed():
+    st.header("👨‍🎓 Детальная таблица студентов")
+    back_button()
 
-    is_edit = st.session_state.get('edit_mode', False)
-    student_data = None
-
-    if is_edit and st.session_state.current_student_id:
-        try:
-            # Получаем данные студента (это Pandas Series)
-            student_data = st.session_state.db_manager.get_student_by_id(st.session_state.current_student_id)
-        except Exception as e:
-            st.error(f"Ошибка при загрузке данных студента: {e}")
-            student_data = None
-
-    with st.form(key="student_form"):
-        col1, col2 = st.columns(2)
-
-        # ВЕЗДЕ НИЖЕ ВМЕСТО "if student_data" ПИШЕМ "if student_data is not None"
-        
-        with col1:
-            full_name = st.text_input("Полное ФИО *",
-                                      value=student_data['full_name'] if student_data is not None else "",
-                                      placeholder="Иванов Иван Иванович")
-            email = st.text_input("Email *",
-                                  value=student_data['email'] if student_data is not None else "",
-                                  placeholder="example@email.com")
-            contact_number = st.text_input("Контактный номер *",
-                                           value=student_data['contact_number'] if student_data is not None else "",
-                                           help="Формат: +7 XXX XXX XX XX",
-                                           placeholder="+7 701 123 4567")
-            document_id = st.text_input("ИИН *",
-                                        value=student_data['document_id'] if student_data is not None else "",
-                                        placeholder="12 цифр")
-
-        with col2:
-            # Для селектов (выпадающих списков) нужна аккуратная проверка
-            default_course_idx = COURSE_OPTIONS.index(2) # по умолчанию 2 курс
-            if student_data is not None and student_data['course'] in COURSE_OPTIONS:
-                default_course_idx = COURSE_OPTIONS.index(student_data['course'])
-
-            course = st.selectbox("Курс *", COURSE_OPTIONS, index=default_course_idx)
-
-            default_spec_idx = 0
-            if student_data is not None and student_data['specialization'] in SPECIALIZATION_OPTIONS:
-                default_spec_idx = SPECIALIZATION_OPTIONS.index(student_data['specialization'])
-            
-            specialization = st.selectbox("Специальность *", SPECIALIZATION_OPTIONS, index=default_spec_idx)
-            
-            # Университет
-            default_uni_idx = 0
-            if student_data is not None and student_data['university'] in UNIVERSITY_OPTIONS:
-                default_uni_idx = UNIVERSITY_OPTIONS.index(student_data['university'])
-                
-            university = st.selectbox("Университет", UNIVERSITY_OPTIONS, index=default_uni_idx)
-            
-            # GPA
-            default_gpa = 3.0
-            if student_data is not None and pd.notna(student_data['gpa']):
-                default_gpa = float(student_data['gpa'])
-                
-            gpa = st.number_input("Средний балл (GPA)",
-                                  min_value=0.0, max_value=4.0, step=0.1,
-                                  value=default_gpa)
-
-        # Мультиселект (языки)
-        default_langs = []
-        if student_data is not None and pd.notna(student_data['programming_languages']):
-            # Разбиваем строку и чистим пробелы
-            raw_langs = str(student_data['programming_languages']).split(',')
-            # Фильтруем только те, что есть в списке опций
-            default_langs = [l.strip() for l in raw_langs if l.strip() in LANGUAGE_OPTIONS]
-
-        programming_languages = st.multiselect("Языки программирования и технологии",
-                                               LANGUAGE_OPTIONS,
-                                               default=default_langs)
-
-        work_experience = st.text_area("Опыт работы",
-                                       value=student_data['work_experience'] if student_data is not None else "",
-                                       height=150,
-                                       placeholder="Опишите ваш опыт работы, проекты, достижения...")
-
-        portfolio_link = st.text_input("Ссылка на портфолио/GitHub",
-                                       value=student_data['portfolio_link'] if student_data is not None else "",
-                                       placeholder="https://github.com/username")
-
-        col_year, col_active = st.columns(2)
-        with col_year:
-            default_year = 2024
-            if student_data is not None and pd.notna(student_data['graduation_year']):
-                default_year = int(student_data['graduation_year'])
-                
-            graduation_year = st.number_input("Год выпуска",
-                                              min_value=2020, max_value=2030,
-                                              value=default_year)
-        with col_active:
-            # Чекбокс
-            is_active_val = True
-            if student_data is not None:
-                is_active_val = bool(student_data['is_active'])
-            
-            is_active = st.checkbox("Активно ищу работу/стажировку", value=is_active_val)
-
-        submit_label = "💾 Сохранить изменения" if is_edit else "🚀 Отправить заявку"
-        # Вот она - кнопка Submit. Она должна быть внутри with st.form!
-        submitted = st.form_submit_button(submit_label, use_container_width=True)
-
-        if submitted:
-            if all([full_name, email, contact_number, document_id]):
-                languages_str = ", ".join(programming_languages)
-                student_data_tuple = (
-                    full_name, course, specialization, languages_str,
-                    work_experience, portfolio_link, contact_number,
-                    document_id, email, gpa, graduation_year, int(is_active)
-                )
-
-                try:
-                    if is_edit:
-                        st.session_state.db_manager.update_student(st.session_state.current_student_id,
-                                                                   student_data_tuple)
-                        st.success("✅ Профиль успешно обновлен!")
-                        # Добавляем уведомление
-                        st.session_state.db_manager.add_notification(
-                            st.session_state.current_student_id,
-                            "Профиль обновлен",
-                            f"Ваш профиль был обновлен. Дата: {datetime.now().strftime('%d.%m.%Y')}",
-                            "success"
-                        )
-                    else:
-                        st.session_state.db_manager.insert_student(student_data_tuple)
-                        st.success("✅ Заявка успешно отправлена!")
-                        # Добавляем уведомление админу
-                        st.session_state.db_manager.add_notification(
-                            1,  # Администратор
-                            "Новая заявка студента",
-                            f"Студент {full_name} подал заявку",
-                            "info"
-                        )
-                        st.balloons()
-
-                    # Сброс состояния после успеха
-                    if is_edit:
-                        st.session_state.edit_mode = False
-                        st.session_state.current_student_id = None
-
-                    st.session_state.page = 'students'
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Ошибка сохранения: {str(e)}")
-            else:
-                st.warning("⚠️ Пожалуйста, заполните все обязательные поля (отмечены *)")
-
-    # Кнопки возврата (вне формы)
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ К списку студентов", use_container_width=True, type="secondary"):
-            st.session_state.page = 'students'
-            st.session_state.edit_mode = False
-            if 'current_student_id' in st.session_state:
-                del st.session_state.current_student_id
-            st.rerun()
-    with col2:
-        if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-            st.session_state.page = 'dashboard'
-            st.session_state.edit_mode = False
-            if 'current_student_id' in st.session_state:
-                del st.session_state.current_student_id
-            st.rerun()
-
-
-def vacancies_page():
-    """Страница вакансий"""
-    st.header("💼 Вакансии для студентов")
+    db = st.session_state.db_manager
 
     try:
-        # Получение вакансий
-        vacancies_df = st.session_state.db_manager.get_all_vacancies()
+        students = db.get_all_students()
 
-        if not vacancies_df.empty:
+        if not students.empty:
+            st.markdown('<div class="full-table-container">', unsafe_allow_html=True)
+
             # Поиск и фильтры
-            with st.container():
-                st.markdown('<div class="content-card">', unsafe_allow_html=True)
-                col1, col2 = st.columns(2)
-                with col1:
-                    search_vacancy = st.text_input("🔍 Поиск по вакансиям", placeholder="Название, компания...")
-                with col2:
-                    spec_filter = st.selectbox("Фильтр по специальности", ["Все"] + SPECIALIZATION_OPTIONS)
-                st.markdown('</div>', unsafe_allow_html=True)
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                search_name = st.text_input("🔍 Поиск по ФИО", key="detailed_search_name")
+            with col2:
+                search_course = st.selectbox("🎓 Курс", ["Все"] + COURSE_OPTIONS, key="detailed_search_course")
+            with col3:
+                search_spec = st.selectbox("🎯 Специальность", ["Все"] + SPECIALIZATION_OPTIONS,
+                                           key="detailed_search_spec")
 
-            # Применение фильтров
-            if search_vacancy:
-                vacancies_df = vacancies_df[vacancies_df.apply(
-                    lambda row: search_vacancy.lower() in str(row['position']).lower() or
-                                search_vacancy.lower() in str(row['company_name']).lower(), axis=1)]
+            # Применяем фильтры
+            filtered_students = students.copy()
+            if search_name:
+                filtered_students = filtered_students[
+                    filtered_students['full_name'].str.contains(search_name, case=False, na=False)]
+            if search_course != "Все":
+                filtered_students = filtered_students[filtered_students['course'] == search_course]
+            if search_spec != "Все":
+                filtered_students = filtered_students[filtered_students['specialization'] == search_spec]
 
-            if spec_filter != "Все":
-                vacancies_df = vacancies_df[vacancies_df['specialization'] == spec_filter]
+            # Детальная таблица
+            display_df = filtered_students[[
+                'full_name', 'course', 'specialization', 'gpa', 'email',
+                'contact_number', 'programming_languages', 'graduation_year',
+                'work_experience', 'is_active'
+            ]].copy()
 
-            # Отображение вакансий в виде карточек
-            for _, vacancy in vacancies_df.iterrows():
-                with st.container():
-                    deadline_date = pd.to_datetime(vacancy['application_deadline'])
-                    days_left = (deadline_date - pd.Timestamp.now()).days
-                    days_color = "var(--danger)" if days_left < 7 else "var(--warning)" if days_left < 30 else "var(--success)"
+            display_df['is_active'] = display_df['is_active'].apply(lambda x: '✅ Да' if x == 1 else '❌ Нет')
 
-                    st.markdown(f"""
-                    <div class="content-card">
-                        <h3 style="margin: 0; color: var(--neon-purple);">{vacancy['position']}</h3>
-                        <p style="margin: 0; font-weight: 500; color: var(--neon-blue);">{vacancy['company_name']}</p>
-                        <div style="margin-top: 15px; display: flex; flex-wrap: wrap; gap: 10px;">
-                            <span style="background: rgba(157, 78, 221, 0.2); color: var(--neon-purple); 
-                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
-                                🎯 {vacancy['specialization']}
-                            </span>
-                            <span style="background: rgba(0, 229, 255, 0.2); color: var(--neon-blue); 
-                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
-                                📚 Курс {vacancy['required_course']}+
-                            </span>
-                            <span style="background: rgba(255, 170, 0, 0.2); color: var(--warning); 
-                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
-                                💰 {vacancy['salary_range']}
-                            </span>
-                            <span style="background: rgba(255, 0, 255, 0.2); color: var(--neon-pink); 
-                                    padding: 6px 12px; border-radius: 20px; font-size: 0.9rem;">
-                                ⏰ Дней осталось: <span style="color: {days_color};">{days_left if days_left > 0 else 0}</span>
-                            </span>
-                        </div>
-                        <p style="margin-top: 15px; color: var(--text-light); line-height: 1.6;">
-                            {vacancy['description'][:200]}...
-                        </p>
-                    </div>
-                    """, unsafe_allow_html=True)
+            st.dataframe(
+                display_df.rename(columns={
+                    'full_name': 'ФИО',
+                    'course': 'Курс',
+                    'specialization': 'Специальность',
+                    'gpa': 'GPA',
+                    'email': 'Email',
+                    'contact_number': 'Телефон',
+                    'programming_languages': 'Навыки',
+                    'graduation_year': 'Год выпуска',
+                    'work_experience': 'Опыт работы',
+                    'is_active': 'В поиске работы'
+                }),
+                use_container_width=True,
+                height=400
+            )
 
-                    # Кнопки действий
-                    col1, col2, col3 = st.columns([1, 1, 2])
-                    with col1:
-                        if st.button("📨 Откликнуться", key=f"apply_{vacancy['id']}"):
-                            st.session_state.current_vacancy_id = vacancy['id']
-                            st.session_state.page = 'apply_vacancy'
-                            st.rerun()
-                    with col2:
-                        if st.button("📋 Подробнее", key=f"details_{vacancy['id']}"):
-                            with st.expander("Подробная информация", expanded=True):
-                                st.markdown(f"**📝 Описание:**\n{vacancy['description']}")
-                                st.markdown(f"**🎯 Требования:**\n{vacancy['requirements']}")
-                                st.markdown(f"**📧 Контакты:** {vacancy['contact_email']}")
-                                st.markdown(f"**⏰ Дедлайн:** {vacancy['application_deadline']}")
-                    st.markdown("---")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            # Экспорт данных
+            st.subheader("📤 Экспорт данных")
+            col_exp1, col_exp2 = st.columns(2)
+
+            with col_exp1:
+                if st.button("📥 Экспорт в CSV", key="export_csv"):
+                    csv = display_df.to_csv(index=False)
+                    st.download_button(
+                        label="Скачать CSV",
+                        data=csv,
+                        file_name=f"students_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                        mime="text/csv"
+                    )
+
+            with col_exp2:
+                if st.button("📊 Создать отчет", key="create_report"):
+                    report = f"""
+                    ОТЧЕТ ПО СТУДЕНТАМ КЭУ
+                    Дата: {datetime.now().strftime('%d.%m.%Y %H:%M')}
+
+                    Всего студентов: {len(students)}
+                    Активно ищут работу: {len(students[students['is_active'] == 1])}
+                    Средний GPA: {students['gpa'].mean():.2f}
+
+                    Распределение по курсам:
+                    """
+
+                    for course in COURSE_OPTIONS:
+                        count = len(students[students['course'] == course])
+                        report += f"- Курс {course}: {count} студентов\n"
+
+                    st.text_area("Отчет", report, height=200)
+
         else:
-            st.info("💼 Активных вакансий пока нет")
+            st.info("Пока нет зарегистрированных студентов")
 
     except Exception as e:
-        st.error(f"Ошибка при загрузке вакансий: {e}")
-
-    # Кнопка добавления вакансии
-    if st.button("➕ Добавить вакансию", use_container_width=True):
-        st.session_state.page = 'vacancy_form'
-        st.rerun()
-
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
+        st.error(f"Ошибка: {str(e)}")
 
 
-def vacancy_form_page():
-    """Форма добавления вакансии"""
-    st.header("📋 Форма вакансии")
+def admin_vacancies():
+    st.header("💼 Управление вакансиями")
+    back_button()
 
-    with st.form(key="vacancy_form"):
+    db = st.session_state.db_manager
+
+    try:
+        vacancies = db.get_all_vacancies()
+
+        if not vacancies.empty:
+            # Кнопка добавления
+            if st.button("➕ Добавить вакансию", key="admin_add_vacancy_btn"):
+                st.session_state.page = 'add_vacancy'
+                st.rerun()
+
+            # Таблица вакансий
+            display_df = vacancies[['company_name', 'position', 'specialization', 'salary_range',
+                                    'application_deadline', 'contact_email']].copy()
+
+            st.dataframe(
+                display_df.rename(columns={
+                    'company_name': 'Компания',
+                    'position': 'Должность',
+                    'specialization': 'Специальность',
+                    'salary_range': 'Зарплата',
+                    'application_deadline': 'Дедлайн',
+                    'contact_email': 'Email компании'
+                }),
+                use_container_width=True,
+                hide_index=True
+            )
+        else:
+            st.info("Пока нет активных вакансий")
+            if st.button("➕ Добавить первую вакансию", key="admin_add_first_vacancy"):
+                st.session_state.page = 'add_vacancy'
+                st.rerun()
+
+    except Exception as e:
+        st.error(f"Ошибка: {str(e)}")
+
+
+def admin_add_vacancy():
+    st.header("➕ Новая вакансия")
+    back_button()
+
+    with st.form("add_vacancy_form", clear_on_submit=True):
+        st.markdown('<div class="content-card">', unsafe_allow_html=True)
+
         col1, col2 = st.columns(2)
 
         with col1:
-            company_name = st.text_input("Название компании *", placeholder="Например: Kaspi Bank")
-            position = st.text_input("Должность *", placeholder="Например: Junior Python Developer")
-            specialization = st.selectbox("Специальность", SPECIALIZATION_OPTIONS)
-            required_course = st.selectbox("Требуемый курс", COURSE_OPTIONS)
+            company_name = st.text_input("Название компании *", key="vac_company")
+            position = st.text_input("Должность *", key="vac_position")
+            specialization = st.selectbox("Специальность", SPECIALIZATION_OPTIONS, key="vac_specialization")
+            required_course = st.selectbox("Требуемый курс", COURSE_OPTIONS, key="vac_course")
 
         with col2:
-            salary_range = st.text_input("Зарплатная вилка", placeholder="Например: 300 000 - 500 000 KZT")
-            contact_email = st.text_input("Email для откликов *", placeholder="hr@company.kz")
-            application_deadline = st.date_input("Дедлайн подачи")
+            salary_range = st.text_input("Зарплатная вилка", placeholder="150 000 - 200 000 KZT", key="vac_salary")
+            contact_email = st.text_input("Email для откликов *", placeholder="hr@company.kz", key="vac_email")
+            application_deadline = st.date_input("Дедлайн подачи", key="vac_deadline")
 
-        description = st.text_area("Описание вакансии *", height=150,
-                                   placeholder="Опишите обязанности, условия работы, преимущества...")
-        requirements = st.text_area("Требования *", height=150,
-                                    placeholder="Укажите необходимые навыки, опыт, образование...")
+        description = st.text_area("Описание вакансии *", height=120, key="vac_description")
+        requirements = st.text_area("Требования *", height=120, key="vac_requirements")
 
-        submitted = st.form_submit_button("📤 Опубликовать вакансию", use_container_width=True)
+        st.markdown('</div>', unsafe_allow_html=True)
+
+        col_btn1, col_btn2 = st.columns(2)
+        with col_btn1:
+            submitted = st.form_submit_button("📤 Опубликовать", use_container_width=True, key="vac_submit")
+        with col_btn2:
+            if st.form_submit_button("❌ Отмена", use_container_width=True, key="vac_cancel"):
+                st.session_state.page = 'vacancies'
+                st.rerun()
 
         if submitted:
             if all([company_name, position, description, requirements, contact_email]):
@@ -1901,479 +1697,368 @@ def vacancy_form_page():
                 try:
                     st.session_state.db_manager.insert_vacancy(vacancy_data)
                     st.success("✅ Вакансия успешно опубликована!")
-                    # Добавляем уведомление
-                    st.session_state.db_manager.add_notification(
-                        1,  # Администратор
-                        "Новая вакансия",
-                        f"Опубликована новая вакансия: {position} в компании {company_name}",
-                        "info"
-                    )
                     st.session_state.page = 'vacancies'
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Ошибка: {str(e)}")
             else:
-                st.warning("⚠️ Пожалуйста, заполните все обязательные поля")
-
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("⬅️ К вакансиям", use_container_width=True, type="secondary"):
-            st.session_state.page = 'vacancies'
-            st.rerun()
-    with col2:
-        if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-            st.session_state.page = 'dashboard'
-            st.rerun()
+                st.warning("⚠️ Заполните все обязательные поля")
 
 
-def analytics_page():
-    """Аналитика и отчеты"""
-    st.header("📊 Аналитика и отчеты")
+def admin_applications():
+    st.header("📨 Управление откликами")
+    back_button()
+
+    db = st.session_state.db_manager
 
     try:
-        students_df = st.session_state.db_manager.get_all_students()
-        vacancies_df = st.session_state.db_manager.get_all_vacancies()
-        reports_df = st.session_state.db_manager.get_employment_reports()
-        applications_df = st.session_state.db_manager.get_applications()
+        applications = db.get_all_applications()
 
-        if not students_df.empty:
-            # Вкладки с разной аналитикой
-            tab1, tab2, tab3, tab4 = st.tabs(["📈 Общая статистика", "🎯 Распределение", "📊 Успеваемость", "📋 Отчеты"])
+        if not applications.empty:
+            # Фильтры
+            col_filter1, col_filter2 = st.columns(2)
+            with col_filter1:
+                status_filter = st.selectbox("Статус", ["Все", "pending", "accepted", "rejected"],
+                                             key="admin_status_filter")
+            with col_filter2:
+                search_app = st.text_input("Поиск", placeholder="Студент, вакансия...", key="admin_app_search")
 
-            with tab1:
-                col1, col2 = st.columns(2)
+            # Применяем фильтры
+            filtered_apps = applications.copy()
+            if status_filter != "Все":
+                filtered_apps = filtered_apps[filtered_apps['status'] == status_filter]
+            if search_app:
+                filtered_apps = filtered_apps[
+                    filtered_apps['full_name'].str.contains(search_app, case=False, na=False) |
+                    filtered_apps['position'].str.contains(search_app, case=False, na=False)
+                    ]
 
-                with col1:
-                    # Круговая диаграмма по специальностям
-                    st.subheader("Распределение студентов по специальностям")
-                    spec_dist = students_df['specialization'].value_counts()
-                    for spec, count in spec_dist.items():
-                        percentage = (count / spec_dist.sum()) * 100
-                        st.progress(percentage / 100, text=f"{spec}: {count} студентов ({percentage:.1f}%)")
+            # Отображение откликов
+            for i, app in filtered_apps.iterrows():
+                status_class = f"status-{app['status']}"
+                status_text = {
+                    'pending': '⏳ Ожидает',
+                    'accepted': '✅ Принято',
+                    'rejected': '❌ Отклонено'
+                }.get(app['status'], app['status'])
 
-                with col2:
-                    # Статистика по статусам откликов
-                    st.subheader("Статусы откликов")
-                    if not applications_df.empty:
-                        status_dist = applications_df['status'].value_counts()
-                        for status, count in status_dist.items():
-                            status_ru = {'pending': '⏳ Ожидают', 'accepted': '✅ Приняты',
-                                         'rejected': '❌ Отклонены'}.get(status, status)
-                            st.metric(status_ru, count)
-                    else:
-                        st.info("Нет данных об откликах")
+                st.markdown(f"""
+                <div class="content-card">
+                    <div style="display: flex; justify-content: space-between; align-items: start;">
+                        <div>
+                            <h4 style="margin: 0; color: var(--peach-dark);">{app['position']}</h4>
+                            <p style="margin: 5px 0; color: var(--peach-primary);">{app['company_name']}</p>
+                            <p style="margin: 0;"><strong>Студент:</strong> {app['full_name']}</p>
+                            <p style="margin: 0;"><strong>Email:</strong> {app['student_email']}</p>
+                            <p style="margin: 0;"><strong>Телефон:</strong> {app['contact_number']}</p>
+                            <p style="margin: 5px 0;"><strong>Дата:</strong> {app['application_date'][:10]}</p>
+                            <p style="margin: 0;"><strong>Зарплата:</strong> {app['salary_range']}</p>
+                        </div>
+                        <span class="status-badge {status_class}">{status_text}</span>
+                    </div>
+                    {f'<p style="margin-top: 10px;"><strong>Сопроводительное письмо:</strong><br>{app["cover_letter"]}</p>' if app['cover_letter'] else ''}
+                </div>
+                """, unsafe_allow_html=True)
 
-            with tab2:
-                # Таблица распределения по курсам и специальностям
-                st.subheader("Распределение студентов")
-                if not students_df.empty:
-                    pivot_table = pd.crosstab(students_df['course'], students_df['specialization'], margins=True)
-                    st.dataframe(pivot_table, use_container_width=True)
-
-                # Распределение зарплат
-                st.subheader("Распределение зарплат")
-                if not reports_df.empty and 'salary' in reports_df.columns:
-                    salaries = reports_df['salary'].apply(
-                        lambda x: float(str(x).split()[0].replace('KZT', '').replace(',', '').strip())
-                        if 'KZT' in str(x) else 0
-                    )
-                    if salaries.sum() > 0:
-                        col_s1, col_s2, col_s3 = st.columns(3)
-                        with col_s1:
-                            st.metric("Мин. зарплата", f"{salaries.min():,.0f} KZT")
-                        with col_s2:
-                            st.metric("Средняя зарплата", f"{salaries.mean():,.0f} KZT")
-                        with col_s3:
-                            st.metric("Макс. зарплата", f"{salaries.max():,.0f} KZT")
-
-            with tab3:
-                # Статистика успеваемости
-                st.subheader("Статистика успеваемости студентов")
-                if 'gpa' in students_df.columns:
-                    gpa_stats = students_df['gpa'].describe()
-
-                    col_g1, col_g2, col_g3, col_g4 = st.columns(4)
-                    with col_g1:
-                        st.metric("Средний GPA", f"{gpa_stats['mean']:.2f}")
-                    with col_g2:
-                        st.metric("Медиана GPA", f"{gpa_stats['50%']:.2f}")
-                    with col_g3:
-                        st.metric("Мин. GPA", f"{gpa_stats['min']:.2f}")
-                    with col_g4:
-                        st.metric("Макс. GPA", f"{gpa_stats['max']:.2f}")
-
-                    # Распределение GPA
-                    st.subheader("Распределение GPA")
-                    gpa_bins = pd.cut(students_df['gpa'], bins=[0, 2.0, 3.0, 3.5, 4.0],
-                                      labels=['<2.0', '2.0-3.0', '3.0-3.5', '3.5-4.0'])
-                    gpa_dist = gpa_bins.value_counts().sort_index()
-                    for gpa_range, count in gpa_dist.items():
-                        percentage = (count / len(students_df)) * 100
-                        st.progress(percentage / 100, text=f"{gpa_range}: {count} студентов ({percentage:.1f}%)")
-
-            with tab4:
-                # Генерация отчета
-                st.subheader("📋 Генерация отчета")
-
-                report_type = st.selectbox("Выберите тип отчета",
-                                           ["Общий отчет", "Отчет по трудоустройству", "Отчет по успеваемости",
-                                            "Отчет по вакансиям"])
-
-                if st.button("📥 Сгенерировать отчет", use_container_width=True):
-                    with st.spinner("Генерация отчета..."):
-                        # Создаем простой текстовый отчет
-                        report = f"""
-                        ОТЧЕТ СИСТЕМЫ GRADUATE RECRUITMENT
-                        =========================================
-                        Дата генерации: {datetime.now().strftime('%d.%m.%Y %H:%M')}
-                        Тип отчета: {report_type}
-
-                        """
-
-                        if report_type == "Общий отчет":
-                            report += f"""
-                            ОБЩАЯ СТАТИСТИКА:
-                            - Всего студентов: {len(students_df)}
-                            - Активных студентов: {len(students_df[students_df['is_active'] == 1])}
-                            - Всего ваканций: {len(vacancies_df)}
-                            - Всего откликов: {len(applications_df) if not applications_df.empty else 0}
-                            - Трудоустроено студентов: {len(reports_df)}
-
-                            РАСПРЕДЕЛЕНИЕ ПО СПЕЦИАЛЬНОСТЯМ:
-                            """
-                            for spec, count in students_df['specialization'].value_counts().items():
-                                report += f"- {spec}: {count} студентов\n"
-
-                            report += f"\nСредний GPA: {students_df['gpa'].mean():.2f}"
-
-                        elif report_type == "Отчет по трудоустройству":
-                            if not reports_df.empty:
-                                report += f"""
-                                ОТЧЕТ ПО ТРУДОУСТРОЙСТВУ:
-                                - Всего трудоустроено: {len(reports_df)}
-                                - По компаниям:
-                                """
-                                company_counts = reports_df['company_name'].value_counts()
-                                for company, count in company_counts.items():
-                                    report += f"  - {company}: {count} студентов\n"
-
-                                if 'salary' in reports_df.columns:
-                                    salaries = reports_df['salary'].apply(
-                                        lambda x: float(str(x).split()[0].replace('KZT', '').replace(',', '').strip())
-                                        if 'KZT' in str(x) else 0
-                                    )
-                                    report += f"\nСредняя зарплата: {salaries.mean():,.0f} KZT"
-                            else:
-                                report += "Нет данных о трудоустройстве"
-
-                        elif report_type == "Отчет по успеваемости":
-                            report += f"""
-                            ОТЧЕТ ПО УСПЕВАЕМОСТИ:
-                            - Средний GPA: {students_df['gpa'].mean():.2f}
-                            - Медиана GPA: {students_df['gpa'].median():.2f}
-                            - Максимальный GPA: {students_df['gpa'].max():.2f}
-                            - Минимальный GPA: {students_df['gpa'].min():.2f}
-
-                            РАСПРЕДЕЛЕНИЕ ПО БАЛЛАМ:
-                            """
-                            gpa_bins = pd.cut(students_df['gpa'], bins=[0, 2.0, 3.0, 3.5, 4.0])
-                            for interval, count in gpa_bins.value_counts().sort_index().items():
-                                report += f"- {interval}: {count} студентов\n"
-
-                        elif report_type == "Отчет по вакансиям":
-                            report += f"""
-                            ОТЧЕТ ПО ВАКАНСИЯМ:
-                            - Всего активных вакансий: {len(vacancies_df)}
-
-                            ПО КОМПАНИЯМ:
-                            """
-                            company_counts = vacancies_df['company_name'].value_counts()
-                            for company, count in company_counts.items():
-                                report += f"- {company}: {count} вакансий\n"
-
-                            report += f"\nПО СПЕЦИАЛЬНОСТЯМ:"
-                            spec_counts = vacancies_df['specialization'].value_counts()
-                            for spec, count in spec_counts.items():
-                                report += f"- {spec}: {count} вакансий\n"
-
-                        st.success("✅ Отчет сгенерирован!")
-                        st.text_area("Содержимое отчета", report, height=300)
-
-                        # Кнопка скачивания
-                        st.download_button(
-                            label="📥 Скачать отчет",
-                            data=report,
-                            file_name=f"report_{datetime.now().strftime('%Y%m%d_%H%M')}.txt",
-                            mime="text/plain"
-                        )
-
-                # Показать сырые данные
-                with st.expander("📁 Просмотр всех данных"):
-                    data_type = st.selectbox("Выберите данные",
-                                             ["Студенты", "Вакансии", "Отклики", "Трудоустройство"])
-
-                    if data_type == "Студенты":
-                        st.dataframe(students_df, use_container_width=True)
-                    elif data_type == "Вакансии":
-                        st.dataframe(vacancies_df, use_container_width=True)
-                    elif data_type == "Отклики" and not applications_df.empty:
-                        st.dataframe(applications_df, use_container_width=True)
-                    elif data_type == "Трудоустройство" and not reports_df.empty:
-                        st.dataframe(reports_df, use_container_width=True)
+                # Кнопки управления статусом
+                col_status1, col_status2, col_status3 = st.columns(3)
+                with col_status1:
+                    if app['status'] != 'accepted':
+                        if st.button("✅ Принять", key=f"accept_{app['id']}"):
+                            db.update_application_status(app['id'], 'accepted')
+                            st.success("Статус изменен на 'Принято'")
+                            st.rerun()
+                with col_status2:
+                    if app['status'] != 'rejected':
+                        if st.button("❌ Отклонить", key=f"reject_{app['id']}"):
+                            db.update_application_status(app['id'], 'rejected')
+                            st.success("Статус изменен на 'Отклонено'")
+                            st.rerun()
+                with col_status3:
+                    if st.button("📋 Подробнее", key=f"app_details_{app['id']}"):
+                        with st.expander("Детали отклика"):
+                            st.write(f"**ID отклика:** {app['id']}")
+                            if app['cover_letter']:
+                                st.write(f"**Сопроводительное письмо:**\n{app['cover_letter']}")
+                            st.write(f"**Дата отправки:** {app['application_date']}")
+                st.markdown("---")
         else:
-            st.info("📊 Нет данных для анализа")
+            st.info("📭 Пока нет откликов на вакансии")
 
     except Exception as e:
-        st.error(f"Ошибка при загрузке данных: {e}")
-
-    if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-        st.session_state.page = 'dashboard'
-        st.rerun()
+        st.error(f"Ошибка: {str(e)}")
 
 
-def apply_vacancy_page():
-    """Форма отклика на вакансию"""
-    st.header("📨 Отклик на вакансию")
+def admin_analytics():
+    st.header("📊 Расширенная аналитика")
+    back_button()
 
-    if 'current_vacancy_id' in st.session_state:
-        try:
-            vacancies_df = st.session_state.db_manager.get_all_vacancies()
-            vacancy = vacancies_df[vacancies_df['id'] == st.session_state.current_vacancy_id].iloc[0]
+    db = st.session_state.db_manager
 
-            st.markdown(f"""
-            <div class="content-card">
-                <h3 style="color: var(--neon-purple);">{vacancy['position']}</h3>
-                <p style="color: var(--neon-blue); font-size: 1.1rem;">Компания: {vacancy['company_name']}</p>
-            </div>
-            """, unsafe_allow_html=True)
+    try:
+        students = db.get_all_students()
+        vacancies = db.get_all_vacancies()
+        applications = db.get_all_applications()
 
-            # Получение списка студентов для отклика
-            students_df = st.session_state.db_manager.get_all_students()
+        # Основные метрики
+        st.subheader("📈 Ключевые показатели")
 
-            if not students_df.empty:
-                student_options = {row['id']: row['full_name'] for _, row in students_df.iterrows()}
-                selected_student = st.selectbox("Выберите студента",
-                                                options=list(student_options.keys()),
-                                                format_func=lambda x: student_options[x])
-
-                cover_letter = st.text_area("Сопроводительное письмо",
-                                            height=150,
-                                            placeholder="Расскажите, почему вы подходите для этой вакансии...",
-                                            help="Опишите ваш опыт, навыки и почему вы хотите работать в этой компании")
-
-                if st.button("📤 Отправить отклик", use_container_width=True):
-                    try:
-                        st.session_state.db_manager.apply_for_vacancy(selected_student,
-                                                                      st.session_state.current_vacancy_id,
-                                                                      cover_letter)
-
-                        # Добавляем уведомление
-                        st.session_state.db_manager.add_notification(
-                            selected_student,
-                            "Отклик отправлен",
-                            f"Ваш отклик на вакансию '{vacancy['position']}' в компании {vacancy['company_name']} успешно отправлен!",
-                            "info"
-                        )
-
-                        st.success("✅ Отклик успешно отправлен!")
-                        st.balloons()
-
-                        # Очищаем состояние
-                        del st.session_state.current_vacancy_id
-                        st.session_state.page = 'vacancies'
-                        st.rerun()
-
-                    except Exception as e:
-                        st.error(f"❌ Ошибка при отправке отклика: {str(e)}")
-            else:
-                st.info("👤 Сначала добавьте студентов в систему")
-        except Exception as e:
-            st.error(f"Ошибка при загрузке данных: {str(e)}")
-    else:
-        st.warning("⚠️ Сначала выберите вакансию для отклика")
-        col1, col2 = st.columns(2)
+        stats = db.get_statistics()
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button("⬅️ К вакансиям", use_container_width=True, type="secondary"):
-                if 'current_vacancy_id' in st.session_state:
-                    del st.session_state.current_vacancy_id
-                st.session_state.page = 'vacancies'
-                st.rerun()
+            metric_card("Всего студентов", stats['total_students'], "👨‍🎓")
         with col2:
-            if st.button("🏠 В главное меню", use_container_width=True, type="secondary"):
-                if 'current_vacancy_id' in st.session_state:
-                    del st.session_state.current_vacancy_id
-                st.session_state.page = 'dashboard'
-                st.rerun()
-        if st.button("🔍 Перейти к вакансиям", use_container_width=True):
-            st.session_state.page = 'vacancies'
-            st.rerun()
+            metric_card("Вакансий", stats['active_vacancies'], "💼")
+        with col3:
+            metric_card("Откликов", stats['total_applications'], "📨")
+        with col4:
+            metric_card("Конверсия",
+                        f"{(stats['accepted_applications'] / stats['total_applications'] * 100):.1f}%" if stats[
+                                                                                                              'total_applications'] > 0 else "0%",
+                        "📊")
+
+        # Визуализация
+        st.subheader("📊 Визуализация данных")
+
+        # Распределение студентов по курсам
+        if not students.empty:
+            col_chart1, col_chart2 = st.columns(2)
+
+            with col_chart1:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Распределение студентов по курсам**")
+
+                course_counts = students['course'].value_counts().sort_index()
+                fig1 = px.pie(
+                    values=course_counts.values,
+                    names=course_counts.index,
+                    title="Курсы",
+                    color_discrete_sequence=px.colors.sequential.RdBu
+                )
+                fig1.update_traces(textposition='inside', textinfo='percent+label')
+                st.plotly_chart(fig1, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with col_chart2:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Распределение по специальностям**")
+
+                spec_counts = students['specialization'].value_counts()
+                fig2 = px.bar(
+                    x=spec_counts.values,
+                    y=spec_counts.index,
+                    orientation='h',
+                    title="Специальности",
+                    color=spec_counts.values,
+                    color_continuous_scale='Peach'
+                )
+                fig2.update_layout(xaxis_title="Количество", yaxis_title="Специальность")
+                st.plotly_chart(fig2, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # Анализ откликов
+        if not applications.empty:
+            st.subheader("📨 Анализ откликов")
+
+            col_app1, col_app2 = st.columns(2)
+
+            with col_app1:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Статусы откликов**")
+
+                status_counts = applications['status'].value_counts()
+                fig3 = px.pie(
+                    values=status_counts.values,
+                    names=status_counts.index.map({
+                        'pending': 'На рассмотрении',
+                        'accepted': 'Принято',
+                        'rejected': 'Отклонено'
+                    }),
+                    title="Статусы откликов",
+                    color_discrete_sequence=['#FF9800', '#4CAF50', '#F44336']
+                )
+                st.plotly_chart(fig3, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with col_app2:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Динамика откликов**")
+
+                applications['application_date'] = pd.to_datetime(applications['application_date'])
+                daily_counts = applications.groupby(applications['application_date'].dt.date).size()
+
+                fig4 = px.line(
+                    x=daily_counts.index,
+                    y=daily_counts.values,
+                    title="Количество откликов по дням",
+                    markers=True
+                )
+                fig4.update_layout(xaxis_title="Дата", yaxis_title="Количество откликов")
+                st.plotly_chart(fig4, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # Успеваемость
+        if not students.empty and 'gpa' in students.columns:
+            st.subheader("⭐ Анализ успеваемости")
+
+            gpa_stats = students['gpa'].describe()
+
+            col_gpa1, col_gpa2 = st.columns(2)
+
+            with col_gpa1:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Статистика GPA**")
+
+                stats_data = {
+                    'Метрика': ['Среднее', 'Медиана', 'Минимум', 'Максимум', 'Стандартное отклонение'],
+                    'Значение': [
+                        f"{gpa_stats['mean']:.2f}",
+                        f"{gpa_stats['50%']:.2f}",
+                        f"{gpa_stats['min']:.2f}",
+                        f"{gpa_stats['max']:.2f}",
+                        f"{gpa_stats['std']:.2f}"
+                    ]
+                }
+
+                st.table(pd.DataFrame(stats_data))
+                st.markdown('</div>', unsafe_allow_html=True)
+
+            with col_gpa2:
+                st.markdown('<div class="content-card">', unsafe_allow_html=True)
+                st.write("**Распределение GPA**")
+
+                fig5 = px.histogram(
+                    students,
+                    x='gpa',
+                    nbins=20,
+                    title="Распределение среднего балла",
+                    color_discrete_sequence=['#FFA07A']
+                )
+                fig5.update_layout(xaxis_title="GPA", yaxis_title="Количество студентов")
+                st.plotly_chart(fig5, use_container_width=True)
+                st.markdown('</div>', unsafe_allow_html=True)
+
+        # Генерация комплексного отчета
+        st.subheader("📋 Генерация комплексного отчета")
+
+        if st.button("📊 Сгенерировать полный отчет", key="generate_full_report"):
+            report = f"""
+            КОМПЛЕКСНЫЙ ОТЧЕТ КАРЬЕРНОГО ЦЕНТРА КЭУ
+            =========================================
+            Дата генерации: {datetime.now().strftime('%d.%m.%Y %H:%M:%S')}
+
+            СТУДЕНТЫ:
+            - Всего студентов: {len(students)}
+            - Активно ищут работу: {len(students[students['is_active'] == 1])}
+            - Средний GPA: {students['gpa'].mean():.2f if not students.empty and 'gpa' in students.columns else 'Нет данных'}
+
+            ВАКАНСИИ:
+            - Активных вакансий: {len(vacancies)}
+            - Популярная специальность: {vacancies['specialization'].mode()[0] if not vacancies.empty else 'Нет данных'}
+
+            ОТКЛИКИ:
+            - Всего откликов: {len(applications) if not applications.empty else 0}
+            - Принято: {len(applications[applications['status'] == 'accepted']) if not applications.empty else 0}
+            - На рассмотрении: {len(applications[applications['status'] == 'pending']) if not applications.empty else 0}
+            - Отклонено: {len(applications[applications['status'] == 'rejected']) if not applications.empty else 0}
+            - Конверсия: {(len(applications[applications['status'] == 'accepted']) / len(applications) * 100) if not applications.empty and len(applications) > 0 else 0:.1f}%
+
+            РАСПРЕДЕЛЕНИЕ ПО КУРСАМ:
+            """
+
+            if not students.empty:
+                for course in COURSE_OPTIONS:
+                    count = len(students[students['course'] == course])
+                    percentage = (count / len(students)) * 100 if len(students) > 0 else 0
+                    report += f"- Курс {course}: {count} студентов ({percentage:.1f}%)\n"
+
+            report += "\nРАСПРЕДЕЛЕНИЕ ПО СПЕЦИАЛЬНОСТЯМ:\n"
+            if not students.empty:
+                for spec in SPECIALIZATION_OPTIONS:
+                    count = len(students[students['specialization'] == spec])
+                    if count > 0:
+                        percentage = (count / len(students)) * 100
+                        report += f"- {spec}: {count} студентов ({percentage:.1f}%)\n"
+
+            # Добавляем статистику GPA
+            if not students.empty and 'gpa' in students.columns:
+                report += f"\nУСПЕВАЕМОСТЬ:\n"
+                report += f"- Средний GPA: {students['gpa'].mean():.2f}\n"
+                report += f"- Максимальный GPA: {students['gpa'].max():.2f}\n"
+                report += f"- Минимальный GPA: {students['gpa'].min():.2f}\n"
+                report += f"- Стандартное отклонение: {students['gpa'].std():.2f}\n"
+
+            # Рекомендации
+            report += f"\nРЕКОМЕНДАЦИИ:\n"
+            if not vacancies.empty:
+                most_demanded = vacancies['specialization'].mode()[0]
+                report += f"- Наиболее востребованная специальность: {most_demanded}\n"
+
+            if not applications.empty:
+                conversion_rate = (len(applications[applications['status'] == 'accepted']) / len(applications)) * 100
+                if conversion_rate < 30:
+                    report += "- Рекомендуется улучшить качество подготовки студентов к собеседованиям\n"
+                report += f"- Уровень конверсии откликов: {conversion_rate:.1f}%\n"
+
+            st.success("✅ Комплексный отчет сгенерирован!")
+
+            # Отображаем и предлагаем скачать отчет
+            st.text_area("Содержимое отчета", report, height=400)
+
+            st.download_button(
+                label="📥 Скачать полный отчет",
+                data=report,
+                file_name=f"keu_comprehensive_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt",
+                mime="text/plain",
+                key="download_full_report"
+            )
+
+    except Exception as e:
+        st.error(f"Ошибка при генерации аналитики: {str(e)}")
 
 
-# ========== САЙДБАР НАВИГАЦИИ ==========
-def create_sidebar():
-    with st.sidebar:
-        st.markdown("""
-        <div style="text-align: center; padding: 20px 0; border-bottom: 2px solid rgba(157, 78, 221, 0.5); margin-bottom: 25px;">
-            <div style="font-size: 3rem; color: var(--neon-purple); text-shadow: 0 0 20px rgba(157, 78, 221, 0.7); margin-bottom: 10px;">
-                ⚡
-            </div>
-            <h1 style="color: var(--neon-purple); margin: 0; font-size: 2rem; font-family: 'Orbitron', sans-serif;">
-                GRS
-            </h1>
-            <p style="color: var(--text-dim); margin: 5px 0 0 0; font-size: 0.9rem; opacity: 0.8;">
-                Graduate Recruitment System
-            </p>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Основная навигация
-        pages = {
-            "🏠 Панель управления": "dashboard",
-            "👨‍🎓 Студенты": "students",
-            "💼 Вакансии": "vacancies",
-            "📨 Отклики": "applications",
-            "📊 Трудоустройство": "employment_reports",
-            "🔔 Уведомления": "notifications",
-            "📈 Аналитика": "analytics",
-        }
-
-        for page_name, page_key in pages.items():
-            if st.button(page_name, use_container_width=True,
-                         type="primary" if st.session_state.page == page_key else "secondary"):
-                st.session_state.page = page_key
-                st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Быстрые действия
-        st.markdown("""
-        <div style="padding: 15px; background: rgba(157, 78, 221, 0.1); border-radius: 12px; margin: 20px 0; border: 1px solid rgba(157, 78, 221, 0.3);">
-            <h4 style="color: var(--neon-purple); margin: 0 0 15px 0; font-size: 1rem; text-align: center;">
-                ⚡ Быстрые действия
-            </h4>
-        </div>
-        """, unsafe_allow_html=True)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("➕ Студент", use_container_width=True, type="secondary"):
-                st.session_state.page = 'student_form'
-                st.session_state.edit_mode = False
-                st.rerun()
-        with col2:
-            if st.button("➕ Вакансия", use_container_width=True, type="secondary"):
-                st.session_state.page = 'vacancy_form'
-                st.rerun()
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Статистика в сайдбаре
-        try:
-            stats = st.session_state.db_manager.get_statistics()
-            st.markdown(f"""
-            <div style="background: rgba(20, 20, 43, 0.8); border: 1px solid rgba(157, 78, 221, 0.3); 
-                    border-radius: 15px; padding: 20px; margin-top: 10px; backdrop-filter: blur(10px);">
-                <h4 style="color: var(--neon-purple); margin: 0 0 15px 0; text-align: center; font-size: 1.1rem;">
-                    📊 Статистика
-                </h4>
-                <div style="display: grid; grid-template-columns: 1fr; gap: 8px;">
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
-                        <span style="color: var(--text-dim); font-size: 0.9rem;">👨‍🎓 Студентов:</span>
-                        <span style="color: var(--neon-purple); font-weight: 700; font-size: 1.1rem;">{stats['total_students']}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
-                        <span style="color: var(--text-dim); font-size: 0.9rem;">💼 Вакансий:</span>
-                        <span style="color: var(--neon-blue); font-weight: 700; font-size: 1.1rem;">{stats['active_vacancies']}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
-                        <span style="color: var(--text-dim); font-size: 0.9rem;">📨 Откликов:</span>
-                        <span style="color: var(--neon-pink); font-weight: 700; font-size: 1.1rem;">{stats['total_applications']}</span>
-                    </div>
-                    <div style="display: flex; justify-content: space-between; align-items: center; padding: 5px 0;">
-                        <span style="color: var(--text-dim); font-size: 0.9rem;">🔔 Уведомления:</span>
-                        <span style="color: var(--danger); font-weight: 700; font-size: 1.1rem;">{stats['unread_notifications']}</span>
-                    </div>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-        except Exception as e:
-            st.markdown(f"""
-            <div style="background: rgba(20, 20, 43, 0.8); border: 1px solid rgba(157, 78, 221, 0.3); 
-                    border-radius: 15px; padding: 20px; margin-top: 10px; backdrop-filter: blur(10px);">
-                <h4 style="color: var(--neon-purple); margin: 0 0 15px 0; text-align: center; font-size: 1.1rem;">
-                    📊 Статистика
-                </h4>
-                <p style="color: var(--text-dim); text-align: center; font-size: 0.9rem;">
-                    Загрузка статистики...
-                </p>
-            </div>
-            """, unsafe_allow_html=True)
-
-        st.markdown("<br>", unsafe_allow_html=True)
-
-        # Информация о системе
-        st.markdown("""
-        <div style="text-align: center; color: var(--text-dim); font-size: 0.75rem; padding: 15px 0; 
-                margin-top: 20px; border-top: 1px solid rgba(157, 78, 221, 0.3); opacity: 0.7;">
-            <div style="margin-bottom: 5px;">v3.0 | CyberPunk Edition</div>
-            <div>© 2025 Graduate Recruitment System</div>
-            <div style="margin-top: 8px; color: var(--neon-purple); font-weight: 500; font-size: 0.8rem;">
-                Разработчик: Айкобенов Диас
-            </div>
-        </div>
-        """, unsafe_allow_html=True)
-
-
+# ========== ОСНОВНАЯ ФУНКЦИЯ ==========
 def main():
     init_session_state()
-    apply_custom_styles()
+    apply_peach_theme()
 
-    # Проверка входа
+    # Если пользователь не авторизован - показываем страницу входа
     if 'user' not in st.session_state:
         login_page()
     else:
-        # ВАЖНО: Вызываем функцию из файла sidebar_auth.py
-        create_auth_sidebar()
+        # Создаем сайдбар
+        create_sidebar()
 
-        # Маршрутизация (ваш старый код)
-        page_handlers = {
-            'dashboard': dashboard_page,
-            'students': student_management_page,
-            'student_form': student_form_page,
-            'vacancies': vacancies_page,
-            'vacancy_form': vacancy_form_page,
-            'apply_vacancy': apply_vacancy_page,
-            'applications': applications_page,
-            'employment_reports': employment_reports_page,
-            'notifications': notifications_page,
-            'analytics': analytics_page,
-        }
-
-        # Защита от прямого перехода по URL
         user_role = st.session_state.user['role']
-        current_page = st.session_state.page
 
-        # Если СТУДЕНТ пытается зайти куда не надо (тут всё верно)
-        if user_role == 'student' and current_page in ['students', 'applications', 'employment_reports', 'analytics',
-                                                       'vacancy_form']:
-            st.warning("⛔ Нет доступа")
-            st.session_state.page = 'dashboard'
-            st.rerun()
+        # Определяем обработчики страниц в зависимости от роли
+        if user_role == 'student':
+            page_handlers = {
+                'dashboard': student_dashboard,
+                'profile': student_profile,
+                'vacancies': student_vacancies,
+                'apply_vacancy': student_apply_vacancy,
+                'my_applications': student_my_applications,
+                'stats': student_stats,
+            }
+        else:  # admin
+            page_handlers = {
+                'dashboard': admin_dashboard,
+                'students': admin_students,
+                'students_detailed': admin_students_detailed,
+                'vacancies': admin_vacancies,
+                'add_vacancy': admin_add_vacancy,
+                'applications': admin_applications,
+                'analytics': admin_analytics,
+            }
 
-        
+        # Получаем текущую страницу (по умолчанию dashboard)
+        current_page = st.session_state.get('page', 'dashboard')
 
-        handler = page_handlers.get(st.session_state.page, dashboard_page)
+        # Вызываем обработчик страницы
+        handler = page_handlers.get(current_page, student_dashboard if user_role == 'student' else admin_dashboard)
         handler()
 
 
 if __name__ == "__main__":
     main()
-
-
-
-
-
-
-
